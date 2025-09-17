@@ -1,0 +1,208 @@
+# Viper GolangCI-Lint Configuration
+# Production-grade linting configuration aligned with Viper Engineering Doctrine
+
+linters-settings:
+  # Cyclomatic complexity
+  cyclop:
+    max-complexity: 15
+    package-average: 10.0
+
+  # Duplicate code detection
+  dupl:
+    threshold: 100
+
+  # Function length
+  funlen:
+    lines: 60
+    statements: 40
+
+  # Cognitive complexity
+  gocognit:
+    min-complexity: 15
+
+  # Maintainability index
+  gocyclo:
+    min-complexity: 15
+
+  # Import formatting
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/viper-org/viper)
+    skip-generated: true
+
+  # Comments on exported functions
+  godot:
+    scope: declarations
+    exclude:
+      - "^TODO:"
+      - "^FIXME:"
+
+  # Struct field alignment
+  govet:
+    check-shadowing: true
+    fieldalignment: true
+
+  # Line length
+  lll:
+    line-length: 120
+
+  # Naming conventions
+  revive:
+    rules:
+      - name: exported
+        arguments: [checkPrivateReceivers, sayRepetitiveInsteadOfStutters]
+
+  # Error wrapping
+  wrapcheck:
+    ignoreSigs:
+      - .Errorf(
+      - errors.New(
+      - errors.Unwrap(
+
+  # Unused parameters
+  unparam:
+    check-exported: true
+
+linters:
+  enable:
+    # Enabled by default
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Go vet
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Static analysis
+    - typecheck     # Type checking
+    - unused        # Find unused code
+
+    # Additional quality linters
+    - asciicheck    # Check for non-ASCII characters
+    - bidichk       # Check for dangerous unicode character sequences
+    - bodyclose     # Check HTTP response body is closed
+    - contextcheck  # Check context usage
+    - cyclop        # Check cyclomatic complexity
+    - dupl          # Check code duplication
+    - durationcheck # Check time.Duration usage
+    - errname       # Check error naming conventions
+    - errorlint     # Check error handling patterns
+    - exhaustive    # Check exhaustiveness of enum switch statements
+    - exportloopref # Check for loop variable export
+    - funlen        # Check function length
+    - gci           # Control import order
+    - gochecknoinits # Check for init functions
+    - gocognit      # Check cognitive complexity
+    - goconst       # Check for repeated strings that could be constants
+    - gocritic      # Comprehensive Go analyzer
+    - gocyclo       # Check cyclomatic complexity
+    - godot         # Check comments end with period
+    - goimports     # Check import formatting
+    - gomnd         # Check magic numbers
+    - gomoddirectives # Check go.mod directives
+    - gomodguard    # Check blocked modules
+    - goprintffuncname # Check printf-like function names
+    - gosec         # Security checker
+    - lll           # Check line length
+    - makezero      # Check slice initialization
+    - nakedret      # Check naked returns
+    - nestif        # Check nested if statements
+    - nilerr        # Check nil error returns
+    - nilnil        # Check nil nil comparisons
+    - nolintlint    # Check nolint directives
+    - prealloc      # Check slice preallocation
+    - predeclared   # Check predeclared identifier usage
+    - promlinter    # Check Prometheus metrics
+    - revive        # Replacement for golint
+    - rowserrcheck  # Check database/sql rows.Err
+    - sqlclosecheck # Check sql.Close usage
+    - tenv          # Check os.Setenv usage in tests
+    - testpackage   # Check test package naming
+    - tparallel     # Check t.Parallel usage
+    - unconvert     # Check unnecessary type conversions
+    - unparam       # Check unused function parameters
+    - wastedassign  # Check wasted assignments
+    - whitespace    # Check whitespace
+
+  disable:
+    - deadcode      # Deprecated, replaced by unused
+    - exhaustivestruct # Too restrictive for our use case
+    - forbidigo     # We don't forbid specific functions
+    - gofmt         # Covered by goimports
+    - gofumpt       # Use standard gofmt
+    - golint        # Deprecated, replaced by revive
+    - ifshort       # Style preference
+    - interfacer    # Deprecated
+    - maligned      # Deprecated, replaced by fieldalignment
+    - nosnakecase   # We allow snake_case in some contexts
+    - scopelint     # Deprecated, replaced by exportloopref
+    - structcheck   # Deprecated, replaced by unused
+    - varcheck      # Deprecated, replaced by unused
+    - wsl           # Too opinionated about whitespace
+
+issues:
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+
+  # Maximum count of issues with the same text
+  max-same-issues: 3
+
+  # Show only new issues created after git revision
+  new: false
+
+  # Exclude specific issues
+  exclude-rules:
+    # Exclude magic number checks for common test values
+    - path: _test\.go
+      linters:
+        - gomnd
+        - funlen
+        - gocyclo
+
+    # Exclude line length for generated files
+    - path: ".*\\.pb\\.go"
+      linters:
+        - lll
+
+    # Exclude certain linters for main packages
+    - path: "cmd/.*"
+      linters:
+        - gochecknoinits
+
+    # Allow longer lines in comments
+    - source: "^\\s*//.*"
+      linters:
+        - lll
+
+    # Allow TODO comments in development (remove for production)
+    - source: "TODO"
+      linters:
+        - godot
+
+  # Include test files in linting
+  include:
+    - EXC0002 # disable excluding of issues about comments from golint
+    - EXC0012 # disable excluding of issues about exported without comment
+    - EXC0014 # disable excluding of issues about comment should end with punctuation
+
+run:
+  timeout: 5m
+  go: '1.21'
+
+  # Skip generated files
+  skip-files:
+    - ".*\\.pb\\.go$"
+    - ".*_gen\\.go$"
+
+  # Skip vendor directories
+  skip-dirs:
+    - vendor
+
+  # Modules to analyze
+  modules-download-mode: readonly
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
