@@ -29,7 +29,7 @@ linters-settings:
     sections:
       - standard
       - default
-      - prefix(github.com/viper-org/viper)
+      - prefix(github.com/ccheshirecat/viper)
     skip-generated: true
 
   # Comments on exported functions

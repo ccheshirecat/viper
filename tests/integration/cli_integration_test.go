@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viper-org/viper/internal/types"
+	"github.com/ccheshirecat/viper/internal/types"
 )
 
 const (
-	testVM        = "integration-test-vm"
-	testContext   = "test-context"
-	testTimeout   = 30 * time.Second
+	testVM      = "integration-test-vm"
+	testContext = "test-context"
+	testTimeout = 30 * time.Second
 )
 
 func TestCLIVMLifecycle(t *testing.T) {
@@ -146,8 +146,8 @@ func TestCLIBrowserCommands(t *testing.T) {
 	buildCLI(t)
 
 	tests := []struct {
-		name     string
-		command  []string
+		name    string
+		command []string
 	}{
 		{
 			name:    "spawn browser context",
@@ -207,8 +207,8 @@ func TestCLIProfileCommands(t *testing.T) {
 	defer os.Remove(profileFile)
 
 	tests := []struct {
-		name     string
-		command  []string
+		name    string
+		command []string
 	}{
 		{
 			name:    "attach profile",
@@ -241,8 +241,8 @@ func TestCLIDebugCommands(t *testing.T) {
 	buildCLI(t)
 
 	tests := []struct {
-		name     string
-		command  []string
+		name    string
+		command []string
 	}{
 		{
 			name:    "system debug",

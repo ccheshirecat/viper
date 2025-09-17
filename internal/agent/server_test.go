@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viper-org/viper/internal/types"
+	"github.com/ccheshirecat/viper/internal/types"
 )
 
 func TestServerHealth(t *testing.T) {

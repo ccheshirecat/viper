@@ -12,15 +12,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/ccheshirecat/viper/internal/types"
 	"github.com/chromedp/chromedp"
-	"github.com/viper-org/viper/internal/types"
+	"github.com/gin-gonic/gin"
 )
 
 type Server struct {
-	listen   string
-	vmName   string
-	taskDir  string
+	listen    string
+	vmName    string
+	taskDir   string
 	startTime time.Time
 
 	mu       sync.RWMutex

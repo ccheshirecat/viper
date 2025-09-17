@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/viper-org/viper/internal/cli"
+	"github.com/ccheshirecat/viper/internal/cli"
 )
 
 func main() {

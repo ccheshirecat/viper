@@ -7,9 +7,9 @@ import (
 	"io/ioutil"
 	"time"
 
+	"github.com/ccheshirecat/viper/internal/types"
+	"github.com/ccheshirecat/viper/pkg/client"
 	"github.com/spf13/cobra"
-	"github.com/viper-org/viper/pkg/client"
-	"github.com/viper-org/viper/internal/types"
 )
 
 func profileCmd() *cobra.Command {

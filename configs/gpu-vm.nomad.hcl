@@ -12,24 +12,56 @@ job "viper-vm-gpu-example" {
       value     = "true"
     }
 
-    task "agent" {
-      driver = "exec"
+    task "microvm" {
+      driver = "virt"
 
       config {
-        command = "/usr/local/bin/viper-agent"
-        args = [
-          "--listen=:8080",
-          "--vm-name=gpu-example",
-          "--task-dir=/var/viper/tasks",
-          "--gpu-enabled"
-        ]
+        # VM Image - our Alpine rootfs with viper-agent
+        image = "file:///Users/marcxavier/Desktop/viper/out/cloudhypervisor-rootfs/viper-rootfs-latest.qcow2"
+
+        # VM Resources - more for GPU workloads
+        memory = "8192"   # 8GB RAM for GPU workloads
+        vcpu   = 4        # 4 CPU cores
+
+        # Network Configuration
+        network_interface {
+          type   = "bridge"
+          source = "virbr0"
+          model  = "virtio"
+        }
+
+        # GPU Passthrough Configuration
+        hostdev {
+          mode = "subsystem"
+          type = "pci"
+          managed = "yes"
+          source {
+            address {
+              domain = "0x0000"
+              bus    = "0x01"
+              slot   = "0x00"
+              function = "0x0"
+            }
+          }
+        }
+
+        # Boot Configuration
+        boot {
+          loader_type = "bios"
+        }
+
+        # Console access for debugging
+        console {
+          type = "pty"
+        }
       }
 
       resources {
-        cpu    = 4000  # 4 CPU cores for GPU workloads
-        memory = 8192  # 8GB RAM for GPU workloads
+        # Host resources allocated to this VM
+        cpu    = 4000  # 4 CPU cores worth of host CPU
+        memory = 9216  # 9GB host memory (8GB VM + overhead)
 
-        # GPU device request
+        # Host GPU device allocation (handled at Nomad level)
         device "nvidia/gpu" {
           count = 1
 
@@ -44,7 +76,7 @@ job "viper-vm-gpu-example" {
         network {
           mbits = 1000  # Higher bandwidth for GPU workloads
           port "http" {
-            static = 8080
+            to = 8080     # Agent port inside VM
           }
         }
       }
@@ -69,8 +101,8 @@ job "viper-vm-gpu-example" {
       }
 
       logs {
-        max_files     = 15
-        max_file_size = 25
+        max_files     = 10
+        max_file_size = 10
       }
 
       kill_timeout = "60s"
