@@ -1,0 +1,6 @@
+{
+  "id": "example-navigation-task",
+  "url": "https://example.com",
+  "script": "console.log('Page loaded:', document.title);",
+  "timeout": "60s"
+}
