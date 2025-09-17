@@ -1,0 +1,43 @@
+{
+  "id": "example-task-001",
+  "vm_id": "demo",
+  "url": "https://example.com",
+  "actions": [
+    {
+      "type": "navigate",
+      "url": "https://example.com"
+    },
+    {
+      "type": "wait",
+      "duration": 2000
+    },
+    {
+      "type": "screenshot",
+      "filename": "homepage.png"
+    },
+    {
+      "type": "click",
+      "selector": "a[href*='about']"
+    },
+    {
+      "type": "wait",
+      "duration": 1000
+    },
+    {
+      "type": "screenshot",
+      "filename": "about-page.png"
+    },
+    {
+      "type": "extract",
+      "selector": "h1",
+      "attribute": "textContent",
+      "key": "page_title"
+    }
+  ],
+  "timeout": 60000,
+  "metadata": {
+    "description": "Basic navigation and screenshot example",
+    "created_by": "viper-examples",
+    "tags": ["demo", "navigation", "screenshot"]
+  }
+}
