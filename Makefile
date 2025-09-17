@@ -1,7 +1,7 @@
 # Viper Build System
 # Production-ready Makefile for building, testing, and deploying Viper components
 
-.PHONY: all build test clean install deps lint format check-format security-scan help
+.PHONY: all build test clean install deps lint format check-format security-scan help rootfs-build rootfs-build-gpu rootfs-validate rootfs-release rootfs-clean rootfs-info
 .DEFAULT_GOAL := help
 
 # Build configuration
@@ -25,6 +25,7 @@ BUILD_FLAGS := -trimpath $(LDFLAGS)
 BIN_DIR := bin
 DIST_DIR := dist
 COVERAGE_DIR := coverage
+ROOTFS_DIR := rootfs
 
 # Platform targets for cross-compilation
 PLATFORMS := \
@@ -174,6 +175,87 @@ watch-test: ## Watch for changes and run tests
 nomad-job: ## Generate Nomad job files
 	@echo "Nomad job files available in jobs/ directory"
 	@ls -la jobs/*.hcl
+
+.PHONY: version
+rootfs-build: build-agent ## Build rootfs image using Packer
+	@echo "Building rootfs image with Packer..."
+	@if ! command -v packer >/dev/null 2>&1; then \
+		echo "ERROR: Packer not found. Install from: https://www.packer.io/downloads"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(BIN_DIR)/$(AGENT_BINARY_NAME)" ]; then \
+		echo "ERROR: Agent binary not found. Run 'make build-agent' first"; \
+		exit 1; \
+	fi
+	@echo "Building rootfs image version: $(VERSION)"
+	cd $(ROOTFS_DIR) && packer build \
+		-var "version=$(VERSION)" \
+		-var "output_dir=../$(DIST_DIR)/rootfs" \
+		alpine.pkr.hcl
+	@echo "Rootfs image built successfully!"
+	@echo "Output: $(DIST_DIR)/rootfs/viper-rootfs-$(VERSION)-*/viper-rootfs-$(VERSION)-*.qcow2"
+
+rootfs-build-gpu: build-agent ## Build rootfs image with GPU support
+	@echo "Building GPU-enabled rootfs image with Packer..."
+	@if ! command -v packer >/dev/null 2>&1; then \
+		echo "ERROR: Packer not found. Install from: https://www.packer.io/downloads"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(BIN_DIR)/$(AGENT_BINARY_NAME)" ]; then \
+		echo "ERROR: Agent binary not found. Run 'make build-agent' first"; \
+		exit 1; \
+	fi
+	@echo "Building GPU-enabled rootfs image version: $(VERSION)"
+	cd $(ROOTFS_DIR) && packer build \
+		-var "version=$(VERSION)-gpu" \
+		-var "output_dir=../$(DIST_DIR)/rootfs" \
+		-var "enable_gpu=true" \
+		alpine.pkr.hcl
+	@echo "GPU-enabled rootfs image built successfully!"
+	@echo "Output: $(DIST_DIR)/rootfs/viper-rootfs-$(VERSION)-gpu-*/viper-rootfs-$(VERSION)-gpu-*.qcow2"
+
+rootfs-validate: ## Validate Packer template
+	@echo "Validating Packer template..."
+	@if ! command -v packer >/dev/null 2>&1; then \
+		echo "ERROR: Packer not found. Install from: https://www.packer.io/downloads"; \
+		exit 1; \
+	fi
+	cd $(ROOTFS_DIR) && packer validate alpine.pkr.hcl
+	@echo "Packer template validation passed!"
+
+rootfs-release: rootfs-build ## Build and prepare rootfs for release
+	@echo "Preparing rootfs release artifacts..."
+	mkdir -p $(DIST_DIR)/rootfs/release
+	@echo "Copying latest rootfs images to release directory..."
+	@find $(DIST_DIR)/rootfs -name "*.qcow2" -type f -exec cp {} $(DIST_DIR)/rootfs/release/ \;
+	@find $(DIST_DIR)/rootfs -name "metadata.json" -type f -exec cp {} $(DIST_DIR)/rootfs/release/ \;
+	@echo "Generating checksums for rootfs images..."
+	@cd $(DIST_DIR)/rootfs/release && for file in *.qcow2; do \
+		if [ -f "$$file" ]; then \
+			sha256sum "$$file" > "$$file.sha256"; \
+			echo "Generated checksum for $$file"; \
+		fi \
+	done
+	@echo "Rootfs release artifacts ready in $(DIST_DIR)/rootfs/release/"
+	@ls -la $(DIST_DIR)/rootfs/release/
+
+rootfs-clean: ## Clean rootfs build artifacts
+	@echo "Cleaning rootfs artifacts..."
+	rm -rf $(DIST_DIR)/rootfs
+	rm -rf $(ROOTFS_DIR)/out
+	@echo "Rootfs artifacts cleaned."
+
+rootfs-info: ## Show information about built rootfs images
+	@echo "Rootfs Images Information:"
+	@echo "========================="
+	@if [ -d "$(DIST_DIR)/rootfs" ]; then \
+		find $(DIST_DIR)/rootfs -name "metadata.json" -exec echo "--- {} ---" \; -exec cat {} \; -exec echo "" \; 2>/dev/null || echo "No metadata files found"; \
+		echo ""; \
+		echo "Image Files:"; \
+		find $(DIST_DIR)/rootfs -name "*.qcow2" -exec ls -lh {} \; 2>/dev/null || echo "No qcow2 files found"; \
+	else \
+		echo "No rootfs images found. Run 'make rootfs-build' first."; \
+	fi
 
 .PHONY: version
 version: ## Show version information
