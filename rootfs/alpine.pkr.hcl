@@ -87,7 +87,7 @@ source "qemu" "alpine" {
   # Hardware Configuration
   memory            = var.memory
   cpus              = var.cpu_count
-  accelerator       = "kvm"
+  accelerator       = "tcg"    # Software emulation (change to "kvm" on Linux, "hvf" on macOS with proper QEMU)
   net_device        = "virtio-net"
   disk_interface    = "virtio"
 
