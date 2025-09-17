@@ -5,74 +5,76 @@ job "viper-vm-example" {
   group "vm-group" {
     count = 1
 
-    task "agent" {
-      driver = "exec"
+    task "microvm" {
+      driver = "virt"
 
       config {
-        command = "/usr/local/bin/viper-agent"
-        args = [
-          "--listen=:8080",
-          "--vm-name=example",
-          "--task-dir=/var/viper/tasks"
-        ]
+        # VM Image - our Alpine rootfs with viper-agent
+        image = "file:///Users/marcxavier/Desktop/viper/out/cloudhypervisor-rootfs/viper-rootfs-latest.qcow2"
+
+        # VM Resources
+        memory = "2048"   # 2GB RAM
+        vcpu   = 2        # 2 CPU cores
+
+        # Network Configuration
+        network_interface {
+          type   = "bridge"
+          source = "virbr0"  # Default libvirt bridge
+          model  = "virtio"  # High-performance network
+        }
+
+        # Boot Configuration
+        boot {
+          loader_type = "bios"
+        }
+
+        # Console access for debugging
+        console {
+          type = "pty"
+        }
       }
 
       resources {
-        cpu    = 2000  # 2 CPU cores
-        memory = 2048  # 2GB RAM
+        # Host resources allocated to this VM
+        cpu    = 2000  # 2 CPU cores worth of host CPU
+        memory = 2560  # 2.5GB host memory (VM memory + overhead)
 
         network {
-          mbits = 100
+          mbits = 1000  # High bandwidth for browser automation
           port "http" {
-            static = 8080
+            to = 8080     # Agent port inside VM
           }
         }
       }
 
-      # Health check configuration
+      # Service discovery for the agent inside the VM
       service {
         name = "viper-agent-example"
         port = "http"
 
         check {
-          type     = "http"
-          path     = "/health"
-          interval = "10s"
-          timeout  = "3s"
+          type     = "tcp"      # TCP check since HTTP needs VM to be fully booted
+          port     = "http"
+          interval = "30s"      # Longer interval for VM startup
+          timeout  = "10s"
         }
       }
-
-      # Environment variables for the agent
-      env {
-        GOMAXPROCS = "2"
-        GIN_MODE   = "release"
-      }
-
-      # Logging configuration
-      logs {
-        max_files     = 10
-        max_file_size = 10
-      }
-
-      # Kill signal and timeout
-      kill_timeout = "30s"
-      kill_signal  = "SIGTERM"
     }
   }
 
-  # Restart policy
+  # Restart policy - more conservative for VMs
   reschedule {
-    delay          = "30s"
+    delay          = "60s"       # Longer delay for VM restart
     delay_function = "exponential"
-    max_delay      = "120s"
+    max_delay      = "300s"      # 5 minutes max
     unlimited      = true
   }
 
-  # Update strategy
+  # Update strategy - careful with VM updates
   update {
-    max_parallel     = 1
-    min_healthy_time = "30s"
-    healthy_deadline = "3m"
+    max_parallel     = 1         # One VM at a time
+    min_healthy_time = "60s"     # Wait for VM to fully boot
+    healthy_deadline = "5m"      # VMs take longer to start
     auto_revert      = true
   }
 }
