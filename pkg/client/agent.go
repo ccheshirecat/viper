@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/viper-org/viper/internal/types"
+	"github.com/ccheshirecat/viper/internal/types"
 )
 
 type AgentClient struct {

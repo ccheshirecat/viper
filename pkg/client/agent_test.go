@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viper-org/viper/internal/types"
+	"github.com/ccheshirecat/viper/internal/types"
 )
 
 func TestAgentClientHealth(t *testing.T) {
@@ -325,24 +325,24 @@ func TestAgentClientGetTaskScreenshots(t *testing.T) {
 
 func TestAgentClientErrorHandling(t *testing.T) {
 	tests := []struct {
-		name           string
-		statusCode     int
-		expectedError  string
+		name          string
+		statusCode    int
+		expectedError string
 	}{
 		{
-			name:           "server error",
-			statusCode:     http.StatusInternalServerError,
-			expectedError:  "health check failed with status: 500",
+			name:          "server error",
+			statusCode:    http.StatusInternalServerError,
+			expectedError: "health check failed with status: 500",
 		},
 		{
-			name:           "not found",
-			statusCode:     http.StatusNotFound,
-			expectedError:  "health check failed with status: 404",
+			name:          "not found",
+			statusCode:    http.StatusNotFound,
+			expectedError: "health check failed with status: 404",
 		},
 		{
-			name:           "unauthorized",
-			statusCode:     http.StatusUnauthorized,
-			expectedError:  "health check failed with status: 401",
+			name:          "unauthorized",
+			statusCode:    http.StatusUnauthorized,
+			expectedError: "health check failed with status: 401",
 		},
 	}
 

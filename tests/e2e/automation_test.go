@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viper-org/viper/internal/agent"
-	"github.com/viper-org/viper/internal/types"
-	"github.com/viper-org/viper/pkg/client"
+	"github.com/ccheshirecat/viper/internal/agent"
+	"github.com/ccheshirecat/viper/internal/types"
+	"github.com/ccheshirecat/viper/pkg/client"
 )
 
 const (
@@ -97,7 +97,7 @@ func testCompleteWorkflow(t *testing.T, agentClient *client.AgentClient, tmpDir 
 		ID:     "e2e-test-task",
 		VMID:   "e2e-test-vm",
 		URL:    "https://httpbin.org/html", // Simple HTML page for testing
-		Script: "document.title", // Simple script to get page title
+		Script: "document.title",           // Simple script to get page title
 	}
 
 	// Step 4: Monitor task execution (simulated)
@@ -329,8 +329,8 @@ func TestConfigurationFiles(t *testing.T) {
 
 	// Test sample configuration files
 	configs := []struct {
-		name string
-		path string
+		name     string
+		path     string
 		validate func(t *testing.T, data []byte)
 	}{
 		{
@@ -427,33 +427,33 @@ func TestMakefileTargets(t *testing.T) {
 
 	// Test essential Makefile targets
 	targets := []struct {
-		name     string
-		target   string
+		name          string
+		target        string
 		shouldSucceed bool
 	}{
 		{
-			name:   "help",
-			target: "help",
+			name:          "help",
+			target:        "help",
 			shouldSucceed: true,
 		},
 		{
-			name:   "format",
-			target: "format",
+			name:          "format",
+			target:        "format",
 			shouldSucceed: true,
 		},
 		{
-			name:   "build",
-			target: "build",
+			name:          "build",
+			target:        "build",
 			shouldSucceed: true,
 		},
 		{
-			name:   "clean",
-			target: "clean",
+			name:          "clean",
+			target:        "clean",
 			shouldSucceed: true,
 		},
 		{
-			name:   "version",
-			target: "version",
+			name:          "version",
+			target:        "version",
 			shouldSucceed: true,
 		},
 	}
@@ -505,7 +505,7 @@ func getProjectRoot(t *testing.T) string {
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
 		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-		 containsSubstring(s, substr)))
+			containsSubstring(s, substr)))
 }
 
 func containsSubstring(s, substr string) bool {

@@ -7,13 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/viper-org/viper/internal/agent"
+	"github.com/ccheshirecat/viper/internal/agent"
 )
 
 func main() {
 	var (
-		listen = flag.String("listen", ":8080", "HTTP listen address")
-		vmName = flag.String("vm-name", "", "VM name identifier")
+		listen  = flag.String("listen", ":8080", "HTTP listen address")
+		vmName  = flag.String("vm-name", "", "VM name identifier")
 		taskDir = flag.String("task-dir", "/var/viper/tasks", "Task storage directory")
 	)
 	flag.Parse()
