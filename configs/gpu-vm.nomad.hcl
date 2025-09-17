@@ -69,8 +69,8 @@ job "viper-vm-gpu-example" {
       }
 
       logs {
-        max_files     = 15
-        max_file_size = 25
+        max_files     = 10
+        max_file_size = 10
       }
 
       kill_timeout = "60s"
