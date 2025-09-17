@@ -7,9 +7,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/ccheshirecat/viper/internal/nomad"
+	"github.com/ccheshirecat/viper/pkg/client"
 	"github.com/spf13/cobra"
-	"github.com/viper-org/viper/internal/nomad"
-	"github.com/viper-org/viper/pkg/client"
 )
 
 func debugCmd() *cobra.Command {

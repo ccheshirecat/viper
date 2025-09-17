@@ -1,9 +1,10 @@
 package nomad
 
 import (
+	"context"
 	"testing"
 
-	"github.com/viper-org/viper/internal/types"
+	"github.com/ccheshirecat/viper/internal/types"
 )
 
 func TestBuildVMJob(t *testing.T) {

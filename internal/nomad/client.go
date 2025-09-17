@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ccheshirecat/viper/internal/types"
 	nomadapi "github.com/hashicorp/nomad/api"
-	"github.com/viper-org/viper/internal/types"
 )
 
 type Client struct {
-	client *nomadapi.Client
+	client         *nomadapi.Client
+	templateParser *TemplateParser
 }
 
 type SystemStatus struct {
@@ -31,22 +32,30 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("failed to create Nomad client: %w", err)
 	}
 
-	return &Client{client: client}, nil
+	templateParser := NewTemplateParser(client)
+
+	return &Client{
+		client:         client,
+		templateParser: templateParser,
+	}, nil
 }
 
 func (c *Client) CreateVM(ctx context.Context, config types.VMConfig) (*types.VMStatus, error) {
-	job := c.buildVMJob(config)
+	job, err := c.templateParser.ParseJobTemplate(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse job template: %w", err)
+	}
 
-	_, _, err := c.client.Jobs().Register(job, &nomadapi.WriteOptions{})
+	_, _, err = c.client.Jobs().Register(job, &nomadapi.WriteOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to register VM job: %w", err)
 	}
 
 	status := &types.VMStatus{
-		Name:    config.Name,
-		Status:  "pending",
-		Health:  "unknown",
-		Created: time.Now(),
+		Name:     config.Name,
+		Status:   "pending",
+		Health:   "unknown",
+		Created:  time.Now(),
 		Contexts: []string{},
 	}
 
@@ -123,68 +132,12 @@ func (c *Client) GetSystemStatus(ctx context.Context) (*SystemStatus, error) {
 	return status, nil
 }
 
-func (c *Client) buildVMJob(config types.VMConfig) *nomadapi.Job {
-	jobID := fmt.Sprintf("viper-vm-%s", config.Name)
+func (c *Client) ListAvailableTemplates() ([]string, error) {
+	return c.templateParser.ListAvailableTemplates()
+}
 
-	job := &nomadapi.Job{
-		ID:          &jobID,
-		Name:        &jobID,
-		Type:        stringPtr("service"),
-		Datacenters: []string{"dc1"},
-		TaskGroups: []*nomadapi.TaskGroup{
-			{
-				Name:  stringPtr("vm-group"),
-				Count: intPtr(1),
-				Tasks: []*nomadapi.Task{
-					{
-						Name:   "agent",
-						Driver: "exec",
-						Config: map[string]interface{}{
-							"command": "/usr/local/bin/viper-agent",
-							"args":    []string{"--listen=:8080", fmt.Sprintf("--vm-name=%s", config.Name)},
-						},
-						Resources: &nomadapi.Resources{
-							CPU:      intPtr(config.CPUs * 1000),
-							MemoryMB: intPtr(config.Memory),
-							Networks: []*nomadapi.NetworkResource{
-								{
-									Mode: "host",
-									DynamicPorts: []nomadapi.Port{
-										{Label: "http", Value: 8080},
-									},
-								},
-							},
-						},
-						Services: []*nomadapi.Service{
-							{
-								Name:      fmt.Sprintf("viper-agent-%s", config.Name),
-								PortLabel: "http",
-								Checks: []nomadapi.ServiceCheck{
-									{
-										Type:     "http",
-										Path:     "/health",
-										Interval: time.Duration(10 * time.Second),
-										Timeout:  time.Duration(3 * time.Second),
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	if config.GPU {
-		job.TaskGroups[0].Tasks[0].Resources.Devices = []*nomadapi.RequestedDevice{
-			{
-				Name:  "nvidia/gpu",
-				Count: uintPtr(1),
-			},
-		}
-	}
-
-	return job
+func (c *Client) ValidateTemplate(templatePath string) error {
+	return c.templateParser.ValidateTemplate(templatePath)
 }
 
 func stringPtr(s string) *string {
