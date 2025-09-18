@@ -8,17 +8,22 @@ packer {
   }
 }
 
+variable "ssh_password" {
+  type      = string
+  default   = "password"
+  sensitive = true
+}
+
 source "qemu" "alpine" {
   qemuargs = [
-
     ["-cpu", "host"],
     ["-bios", "/opt/homebrew/share/qemu/edk2-aarch64-code.fd"],
     ["-boot", "strict=off"],
   ]
-  qemu_binary       = "/opt/homebrew/bin/qemu-system-aarch64"
+  qemu_binary      = "/opt/homebrew/bin/qemu-system-aarch64"
   iso_url          = "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-virt-3.21.1-aarch64.iso"
   iso_checksum     = "sha256:c6b72a153782d4043c0719a196f8bb8e749f2e8027ca4000579866729a312697"
-  shutdown_command = "echo 'packer' | poweroff"
+  shutdown_command = "poweroff"
   disk_size        = "10000M"
   format           = "qcow2"
   accelerator      = "hvf"
@@ -30,7 +35,7 @@ EOF
   }
   machine_type     = "virt"
   ssh_username     = "root"
-  ssh_password     = "password"
+  ssh_password     = var.ssh_password
   ssh_timeout      = "5m"
   vm_name          = "vipervm"
   vnc_bind_address = "0.0.0.0"
@@ -38,30 +43,36 @@ EOF
   net_device       = "virtio-net"
   disk_interface   = "virtio"
   boot_wait        = "10s"
-  boot_command     = [
+
+  # --- Automated Installation using Your Working Sequence ---
+  boot_command = [
     "<wait>root<enter>",
-    "<wait>setup-alpine<enter>",
-    "alpine<enter>",
-    "eth0<enter>",
-    "dhcp<enter>",
-    "n<enter>",
-    "<wait5>password<enter>password<enter>",
-    "UTC<enter>",
+    "<wait5>",
+
+    # Create the answer file using your confirmed working sequence
+    "cat <<EOF > /tmp/answers.txt \n",
+    # Using official ...OPTS variables from the Alpine documentation
+    "HOSTNAMEOPTS=alpine \n",
+    "INTERFACESOPTS=\"auto lo\\niface lo inet loopback\\n\\nauto eth0\\niface eth0 inet dhcp\" \n",
+    "TIMEZONEOPTS=UTC \n",
+    "PROXYOPTS=none \n",
+    "NTPOPTS=chrony \n",
+    "SSHDOPTS=openssh \n",
+    "APKREPOSOPTS=\"-1\" \n", # Use first mirror (CDN)
+    "DISKOPTS=\"-m sys /dev/vda\" \n",
+
+    # **CRITICAL**: Keeping your non-standard but working password key
+    "KEY_ROOT_PASSWORD=${var.ssh_password} \n",
+    "EOF",
     "<enter>",
-    "<enter>",
-    "r<enter>",
-    "<enter>",
-    "openssh<enter>",
-    "yes<enter>",
-    "none<enter>",
-    "vda<enter>",
-    "sys<enter>",
-    "y<enter>",
-    "<wait1m><reboot><enter>"
+
+    # **CRITICAL**: Using your confirmed working command and flag
+    "<wait>setup-alpine -f /tmp/answers.txt<enter>",
+
+    # Wait for install and reboot
+    "<wait1m>reboot<enter>"
   ]
 }
-
-
 
 # ----------------------
 # Build
@@ -70,8 +81,6 @@ build {
   name    = "viper-alpine-rootfs"
   sources = ["source.qemu.alpine"]
 
-
-  # Verify viper-agent binary locally
   provisioner "shell-local" {
     inline = [
       "echo 'Verifying viper-agent binary exists...'",
@@ -81,8 +90,6 @@ build {
       "fi"
     ]
   }
-
-  # Base system setup inside VM
   provisioner "shell" {
     inline = [
       "echo 'Updating Alpine and installing base packages...'",
@@ -90,14 +97,10 @@ build {
       "apk add --no-cache bash curl wget openssh ca-certificates tzdata chromium-browser"
     ]
   }
-
-  # Copy viper-agent into VM
   provisioner "file" {
     source      = "../bin/viper-agent"
     destination = "/usr/local/bin/viper-agent"
   }
-
-  # Make viper-agent executable
   provisioner "shell" {
     inline = [
       "chmod +x /usr/local/bin/viper-agent",
