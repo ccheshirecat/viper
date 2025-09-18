@@ -19,7 +19,12 @@ func main() {
 	flag.Parse()
 
 	if *vmName == "" {
-		log.Fatal("vm-name is required")
+		// Default VM name when running as PID 1
+		if hostname, err := os.Hostname(); err == nil {
+			*vmName = hostname
+		} else {
+			*vmName = "viper-vm"
+		}
 	}
 
 	server, err := agent.NewServer(*listen, *vmName, *taskDir)
