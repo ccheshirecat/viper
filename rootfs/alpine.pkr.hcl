@@ -73,9 +73,10 @@ source "qemu" "alpine" {
   disk_size         = var.disk_size
   disk_interface    = "virtio"
 
-  # ISO
-  iso_url           = local.alpine_iso_url
-  iso_checksum      = local.alpine_iso_checksum
+  # Use Alpine cloud image instead of ISO
+  disk_image        = true
+  iso_url           = "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/cloud/generic_alpine-3.22.1-aarch64-uefi-cloudinit-r0.qcow2"
+  iso_checksum      = "file:https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/cloud/generic_alpine-3.22.1-aarch64-uefi-cloudinit-r0.qcow2.sha256"
 
   # Hardware
   memory            = var.memory
@@ -93,29 +94,17 @@ source "qemu" "alpine" {
   ssh_password      = "viper"
   ssh_timeout       = "20m"
 
-  # Boot command
-  boot_wait         = "30s"
-  boot_command      = [
-    "<wait10>",
-    "root<enter><wait5>",
-    # Set up networking
-    "setup-interfaces -a<enter><wait10>",
-    "rc-service networking start<enter><wait5>",
-    # Set root password
-    "echo 'root:viper' | chpasswd<enter>",
-    # Enable SSH with password auth
-    "rc-service sshd start<enter><wait5>",
-    "sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config<enter>",
-    "sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config<enter>",
-    "rc-service sshd restart<enter><wait5>"
-  ]
+  # Cloud image boots directly - no boot commands needed
+  boot_wait         = "60s"
 
   shutdown_command  = "poweroff"
   shutdown_timeout  = "5m"
-  qemuargs = [
+  # Cloud-init configuration for SSH setup
+  cd_files         = ["../meta-data", "../user-data"]
+  cd_label         = "cidata"
 
+  qemuargs = [
     ["-machine", "virt"],
-  # Arbitrary QEMU args (for ARM64 HVF, ISO boot)
     ["-boot", "strict=off"],
   ]
 }
