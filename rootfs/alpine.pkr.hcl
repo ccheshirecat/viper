@@ -91,6 +91,11 @@ source "qemu" "alpine" {
   net_device        = "virtio-net"
   disk_interface    = "virtio"
 
+  # ARM64 machine configuration
+  qemuargs = [
+    ["-machine", "virt,accel=hvf"]
+  ]
+
   # Boot Configuration
   boot_wait         = "30s"
   boot_command = [
