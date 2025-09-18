@@ -60,7 +60,7 @@ locals {
   timestamp = regex_replace(timestamp(), "[- TZ:]", "")
 
   # Alpine ISO URL based on version
-  alpine_iso_url = "https://dl-cdn.alpinelinux.org/alpine/v${var.alpine_version}/releases/x86_64/alpine-virt-${var.alpine_version}.0-x86_64.iso"
+  alpine_iso_url = "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-standard-3.22.1-aarch64.iso"
 
   # Output filename with version and timestamp
   output_filename = "viper-rootfs-${var.version}-${local.timestamp}"
@@ -87,7 +87,7 @@ source "qemu" "alpine" {
   # Hardware Configuration
   memory            = var.memory
   cpus              = var.cpu_count
-  accelerator       = "tcg"    # Software emulation (change to "kvm" on Linux, "hvf" on macOS with proper QEMU)
+  accelerator       = "hvf"    # Apple Silicon Hypervisor.framework acceleration
   net_device        = "virtio-net"
   disk_interface    = "virtio"
 
@@ -124,7 +124,7 @@ source "qemu" "alpine" {
   ssh_wait_timeout  = "20m"
 
   # QEMU specific settings
-  qemu_binary       = "qemu-system-x86_64"
+  qemu_binary       = "qemu-system-aarch64"
   headless          = true
   use_default_display = false
 
