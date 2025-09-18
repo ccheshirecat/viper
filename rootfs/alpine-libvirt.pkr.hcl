@@ -40,7 +40,7 @@ locals {
 
 # libvirt builder using Alpine minirootfs
 source "libvirt" "alpine" {
-  libvirt_uri = "qemu:///system"
+  libvirt_uri = "ch+ssh://user@your-linux-host/system"
 
   # VM Configuration
   vcpu = var.cpus
