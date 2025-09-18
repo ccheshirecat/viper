@@ -1,5 +1,5 @@
 # Viper Rootfs - Production-Ready Alpine Linux via libvirt
-# Uses libvirt abstraction layer for hypervisor independence
+# Uses Alpine minirootfs as base and provisions it with viper-agent
 
 packer {
   required_version = ">= 1.9.0"
@@ -30,80 +30,85 @@ variable "cpus" {
   default     = 2
 }
 
-variable "disk_size" {
-  description = "Disk size in MB"
-  type        = number
-  default     = 4096
-}
-
 # Local values
 locals {
   timestamp = regex_replace(timestamp(), "[- TZ:]", "")
   vm_name = "viper-alpine-${var.version}-${local.timestamp}"
-  alpine_iso = "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-standard-3.22.1-aarch64.iso"
   agent_binary_path = "../bin/viper-agent"
   output_dir = "out"
 }
 
-# libvirt builder
+# libvirt builder using Alpine minirootfs
 source "libvirt" "alpine" {
   libvirt_uri = "qemu:///system"
 
   # VM Configuration
-  vm_name = local.vm_name
+  vcpu = var.cpus
   memory = var.memory
-  vcpus = var.cpus
 
-  # Disk Configuration
-  volume_name = "${local.vm_name}.qcow2"
-  volume_size = "${var.disk_size}M"
-  volume_format = "qcow2"
-
-  # Boot from ISO
-  boot_devices = ["cdrom", "hd"]
-
-  # Network
+  # Network interface
   network_interface {
-    type = "network"
-    network = "default"
+    type = "managed"
+    alias = "communicator"
   }
 
-  # Graphics (for VNC access during build)
-  graphics {
-    type = "vnc"
-    listen_address = "127.0.0.1"
-    port = 5900
+  # SSH communicator
+  communicator {
+    communicator = "ssh"
+    ssh_username = "root"
+    ssh_password = "viper"
+    ssh_timeout = "10m"
+  }
+  network_address_source = "lease"
+
+  # Main disk volume using Alpine minirootfs
+  volume {
+    alias = "artifact"
+
+    pool = "default"
+    name = local.vm_name
+
+    source {
+      type = "external"
+      urls = ["https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-minirootfs-3.22.1-aarch64.tar.gz"]
+      checksum = "sha256:188416d41f9f0c9a6e9427b75149e43ccf3a89587b2d27c9ad506e7ffca78d1c"
+    }
+
+    capacity = "4G"
+    target_dev = "vda"
+    bus = "virtio"
+    format = "qcow2"
   }
 
-  # Boot commands for Alpine installation
-  boot_wait = "30s"
-  boot_command = [
-    # Login as root
-    "root<enter><wait5>",
+  # Cloud-init for initial setup
+  volume {
+    source {
+      type = "cloud-init"
+      user_data = format("#cloud-config\n%s", jsonencode({
+        # Set root password
+        chpasswd = {
+          list = "root:viper"
+          expire = false
+        }
+        # Enable SSH
+        ssh_pwauth = true
+        # Install basic packages
+        packages = [
+          "openssh-server",
+          "bash",
+          "curl"
+        ]
+        runcmd = [
+          ["rc-update", "add", "sshd", "default"],
+          ["rc-service", "sshd", "start"]
+        ]
+      }))
+    }
+    target_dev = "vdb"
+    bus = "virtio"
+  }
 
-    # Set up networking
-    "setup-interfaces -a<enter><wait10>",
-    "rc-service networking start<enter><wait5>",
-
-    # Install to disk
-    "setup-disk -m sys /dev/vda<enter><wait30>",
-
-    # Set password for SSH access
-    "echo 'root:viper' | chpasswd<enter>",
-    "rc-service sshd start<enter><wait5>",
-
-    # Reboot to installed system
-    "reboot<enter>"
-  ]
-
-  # SSH configuration
-  ssh_username = "root"
-  ssh_password = "viper"
-  ssh_timeout = "20m"
-
-  # Output
-  output_directory = local.output_dir
-  shutdown_command = "poweroff"
+  shutdown_mode = "acpi"
 }
 
 # Build configuration
