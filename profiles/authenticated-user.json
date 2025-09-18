@@ -1,0 +1,76 @@
+{
+  "id": "authenticated-user",
+  "name": "Sample Authenticated User Profile",
+  "description": "Example profile with authentication cookies and user preferences",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "cookies": [
+    {
+      "name": "session_token",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example",
+      "domain": ".example.com",
+      "path": "/",
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "user_preferences",
+      "value": "theme=dark&lang=en&tz=UTC",
+      "domain": ".example.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": true
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.2.123456789.1234567890",
+      "domain": ".example.com",
+      "path": "/",
+      "httpOnly": false,
+      "secure": false
+    }
+  ],
+  "localStorage": {
+    "example.com": {
+      "user_settings": "{\"theme\":\"dark\",\"notifications\":true,\"autoplay\":false}",
+      "session_data": "{\"last_active\":\"2024-01-01T00:00:00Z\",\"page_views\":42}",
+      "cart_items": "[]"
+    }
+  },
+  "sessionStorage": {
+    "example.com": {
+      "csrf_token": "abc123def456",
+      "temp_data": "{\"form_progress\":\"step2\"}"
+    }
+  },
+  "browserSettings": {
+    "javascript": true,
+    "images": true,
+    "plugins": false,
+    "popups": false,
+    "notifications": "ask",
+    "location": "block",
+    "camera": "block",
+    "microphone": "block"
+  },
+  "fingerprint": {
+    "canvas": "consistent_hash_abc123",
+    "webgl": "renderer_signature_xyz789",
+    "audio": "context_fingerprint_def456",
+    "fonts": ["Arial", "Helvetica", "Times New Roman", "Georgia", "Verdana"],
+    "plugins": [],
+    "timezone": "UTC",
+    "language": "en-US",
+    "platform": "Linux x86_64"
+  },
+  "metadata": {
+    "created": "2024-01-01T00:00:00Z",
+    "last_updated": "2024-01-01T00:00:00Z",
+    "version": "1.0",
+    "tags": ["authenticated", "example", "dark-theme"]
+  }
+}

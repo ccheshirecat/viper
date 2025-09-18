@@ -175,6 +175,58 @@ nomad-job: ## Generate Nomad job files
 	@echo "Nomad job files available in jobs/ directory"
 	@ls -la jobs/*.hcl
 
+# Rootfs build targets
+ROOTFS_DIR := rootfs
+OUT_DIR := out
+PACKER := packer
+
+rootfs-deps: ## Check rootfs build dependencies
+	@echo "Checking rootfs build dependencies..."
+	@if ! command -v $(PACKER) >/dev/null 2>&1; then \
+		echo "Error: Packer not found. Install from https://www.packer.io/downloads"; \
+		exit 1; \
+	fi
+	@if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then \
+		echo "Error: QEMU not found. Install with: brew install qemu"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(BIN_DIR)/$(AGENT_BINARY_NAME) ]; then \
+		echo "Agent binary not found. Building..."; \
+		$(MAKE) build-agent; \
+	fi
+
+rootfs-validate: rootfs-deps ## Validate Packer template
+	@echo "Validating Packer template..."
+	cd $(ROOTFS_DIR) && $(PACKER) validate alpine.pkr.hcl
+
+rootfs-build: rootfs-validate ## Build Alpine rootfs with viper-agent
+	@echo "Building Alpine rootfs image..."
+	mkdir -p $(OUT_DIR)
+	cd $(ROOTFS_DIR) && $(PACKER) build \
+		-var "version=$(VERSION)" \
+		alpine.pkr.hcl
+	@echo "Rootfs build complete. Image available in $(OUT_DIR)/"
+
+rootfs-build-gpu: rootfs-validate ## Build GPU-enabled Alpine rootfs
+	@echo "Building GPU-enabled Alpine rootfs image..."
+	mkdir -p $(OUT_DIR)
+	cd $(ROOTFS_DIR) && $(PACKER) build \
+		-var "version=$(VERSION)-gpu" \
+		-var "enable_gpu=true" \
+		alpine.pkr.hcl
+
+rootfs-info: ## Show information about built images
+	@echo "Built rootfs images:"
+	@if [ -d $(OUT_DIR) ]; then \
+		find $(OUT_DIR) -name "*.qcow2" -exec ls -lh {} \; 2>/dev/null || echo "No images found"; \
+	else \
+		echo "No output directory found. Run 'make rootfs-build' first."; \
+	fi
+
+rootfs-clean: ## Clean rootfs build artifacts
+	@echo "Cleaning rootfs build artifacts..."
+	rm -rf $(OUT_DIR)
+
 .PHONY: version
 version: ## Show version information
 	@echo "Version:    $(VERSION)"
