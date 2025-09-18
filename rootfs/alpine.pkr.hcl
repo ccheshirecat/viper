@@ -105,7 +105,7 @@ source "qemu" "alpine" {
 
   qemuargs = [
     ["-machine", "virt"],
-    ["-boot", "strict=off"],
+    ["-boot", "strict=off"]
   ]
 }
 
