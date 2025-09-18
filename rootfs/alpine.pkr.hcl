@@ -76,7 +76,7 @@ source "qemu" "alpine" {
   # Use Alpine cloud image instead of ISO
   disk_image        = true
   iso_url           = "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/cloud/generic_alpine-3.22.1-aarch64-uefi-cloudinit-r0.qcow2"
-  iso_checksum      = "file:https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/cloud/generic_alpine-3.22.1-aarch64-uefi-cloudinit-r0.qcow2.sha256"
+  iso_checksum      = "sha512:5cf7697f03e4b5280c25c86d910e0691c1f1210787f3276b458d4c183477c31e551e9c0bd70e8a4d87526c47668bc1b582a6fac4bf3bbd5c6ea844f36eab111a"
 
   # Hardware
   memory            = var.memory
