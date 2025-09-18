@@ -33,3 +33,11 @@ go.work.sum
 
 # Claude Code configuration
 .claude/
+
+# Packer VM build outputs
+rootfs/output-*/
+rootfs/out/
+*.qcow2
+*.img
+*.vmdk
+*.vdi

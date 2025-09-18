@@ -1,23 +1,46 @@
 # Viper Rootfs - Alpine Linux VM Images
 
-This directory contains the Packer template and build system for creating minimal, production-ready Alpine Linux images with the embedded Viper agent for microVM environments.
+This directory contains Packer templates and build system for creating minimal, production-ready Alpine Linux images with the embedded Viper agent for microVM environments.
+
+## Architecture Support
+
+- **ARM64 (aarch64)**: Development builds for Apple Silicon Macs
+- **x86_64**: Production builds for Linux hosts with KVM/Cloud Hypervisor
 
 ## Prerequisites
 
 - **Packer**: Install from [packer.io](https://www.packer.io/downloads)
-- **QEMU**: Required for building VM images
-- **viper-agent binary**: Must be built first (`make build-agent`)
+- **QEMU**: Architecture-specific binaries required
+  - `qemu-system-aarch64` for ARM64 builds
+  - `qemu-system-x86_64` for x86_64 builds
+- **viper-agent binary**: Must be built first (`cd .. && make build`)
 
 ## Quick Start
 
+### Using the Build Script (Recommended)
+
 ```bash
-# Validate the Packer template
-make rootfs-validate
+# Build production x86_64 image
+./build.sh x86_64
 
-# Build standard rootfs image
-make rootfs-build
+# Build development ARM64 image
+./build.sh aarch64
 
-# Build GPU-enabled rootfs image
+# Clean build artifacts and rebuild
+./build.sh --clean x86_64
+
+# Verbose build output
+./build.sh --verbose x86_64
+```
+
+### Direct Packer Usage
+
+```bash
+# x86_64 production build
+packer build alpine-x86_64.pkr.hcl
+
+# ARM64 development build
+packer build alpine.pkr.hcl
 make rootfs-build-gpu
 
 # Prepare release artifacts
