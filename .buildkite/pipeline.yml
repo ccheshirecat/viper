@@ -50,11 +50,11 @@ steps:
 
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@bin/viper;filename=viper-$${SEMVER}"
+             -F "file=@bin/viper;filename=viper-$${SEMVER}.bin"
 
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@bin/viper-agent;filename=viper-agent-$${SEMVER}"
+             -F "file=@bin/viper-agent;filename=viper-agent-$${SEMVER}.bin"
         echo "✅ Binaries uploaded to registry"
       else
         echo "⚠️ REGISTRY_KEY not set - skipping artifact upload"
@@ -76,9 +76,9 @@ steps:
       if [ -n "$${REGISTRY_KEY}" ]; then
         SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
         curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-          https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${SEMVER} || echo "Failed to download from registry"
-        if [ -f "viper-agent-$${SEMVER}" ]; then
-          mv viper-agent-$${SEMVER} bin/viper-agent
+          https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${SEMVER}.bin || echo "Failed to download from registry"
+        if [ -f "viper-agent-$${SEMVER}.bin" ]; then
+          mv viper-agent-$${SEMVER}.bin bin/viper-agent
           chmod +x bin/viper-agent
           echo "✅ Agent binary downloaded from registry"
         fi
@@ -108,7 +108,7 @@ steps:
       if [ -f "dist/vmlinuz" ]; then
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@dist/vmlinuz;filename=vmlinuz-$${SEMVER}"
+             -F "file=@dist/vmlinuz;filename=vmlinuz-$${SEMVER}.bin"
       fi
 
       if [ -f "dist/viper-initramfs.gz" ]; then
@@ -147,8 +147,8 @@ steps:
 
       echo "--- Download kernel"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${SEMVER}
-      mv vmlinuz-$${SEMVER} dist/vmlinuz
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${SEMVER}.bin
+      mv vmlinuz-$${SEMVER}.bin dist/vmlinuz
 
       echo "--- Download initramfs"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
@@ -268,8 +268,8 @@ steps:
       mkdir -p bin
       SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}
-      mv viper-$${SEMVER} bin/viper
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin
+      mv viper-$${SEMVER}.bin bin/viper
       chmod +x bin/viper
 
       echo "--- Install Nomad (if not present)"
