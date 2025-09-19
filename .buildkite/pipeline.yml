@@ -18,6 +18,7 @@ env:
 
 steps:
   - label: "🏗️ Build & Unit Tests"
+    key: "build-test"
     agents:
       queue: "default"
     command: |
@@ -61,6 +62,7 @@ steps:
       fi
 
   - label: "🐳 Docker Image Build"
+    key: "docker-build"
     agents:
       queue: "docker"
     command: |
@@ -129,9 +131,8 @@ steps:
         exit 1
       fi
 
-  - wait
-
   - label: "🔬 Cloud Hypervisor Integration Test"
+    key: "integration-test"
     depends_on:
       - "build-test"
       - "docker-build"
@@ -257,6 +258,7 @@ steps:
       fi
 
   - label: "🚀 End-to-End Viper CLI Test"
+    key: "e2e-test"
     depends_on: "integration-test"
     agents:
       queue: "default"
