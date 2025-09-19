@@ -53,36 +53,69 @@ trap cleanup EXIT
 log "Exporting container filesystem..."
 docker export "$CONTAINER_NAME" > "$OUTPUT_DIR/viper-rootfs.tar"
 
-log "Converting tar to disk image..."
-# Create a disk image from the tar export
-DISK_SIZE="2G"
+# Extract kernel and initramfs (required by your CH driver)
+log "Extracting kernel and initramfs..."
+TEMP_DIR=$(mktemp -d)
+cleanup_temp() {
+    rm -rf "$TEMP_DIR"
+    cleanup
+}
+trap cleanup_temp EXIT
+
+cd "$TEMP_DIR"
+tar -xf "$OUTPUT_DIR/viper-rootfs.tar"
+
+# Find kernel in container
+KERNEL_FILE=""
+for kernel_path in boot/vmlinuz* vmlinuz* boot/vmlinux*; do
+    if [ -f "$kernel_path" ]; then
+        KERNEL_FILE="$kernel_path"
+        break
+    fi
+done
+
+if [ -n "$KERNEL_FILE" ]; then
+    cp "$KERNEL_FILE" "$OUTPUT_DIR/vmlinuz"
+    log "✅ Kernel extracted: $OUTPUT_DIR/vmlinuz"
+else
+    # Try host kernel as fallback
+    log "⚠️  No kernel in container, trying host kernel..."
+    if ls /boot/vmlinuz* >/dev/null 2>&1; then
+        cp $(ls /boot/vmlinuz* | head -1) "$OUTPUT_DIR/vmlinuz"
+        log "✅ Host kernel copied: $OUTPUT_DIR/vmlinuz"
+    else
+        error "No kernel found in container or host"
+    fi
+fi
+
+# Create initramfs from entire filesystem (this is your innovation!)
+log "Creating initramfs from container filesystem..."
+find . | cpio -o -H newc | gzip > "$OUTPUT_DIR/viper-initramfs.gz"
+
+# Also create uncompressed version for flexibility
+find . | cpio -o -H newc > "$OUTPUT_DIR/viper-initramfs.cpio"
+
+log "✅ Initramfs created: $OUTPUT_DIR/viper-initramfs.gz"
+
+# Optional: Still create disk image for compatibility
+log "Creating optional disk image for compatibility..."
 DISK_IMAGE="$OUTPUT_DIR/viper-headless.img"
-
-# Create raw disk image
 dd if=/dev/zero of="$DISK_IMAGE" bs=1M count=0 seek=2048 2>/dev/null
-
-# Create filesystem
 mkfs.ext4 -F "$DISK_IMAGE" >/dev/null 2>&1
 
-# Mount and extract
 MOUNT_DIR=$(mktemp -d)
 cleanup_mount() {
     umount "$MOUNT_DIR" 2>/dev/null || true
     rmdir "$MOUNT_DIR" 2>/dev/null || true
-    cleanup
+    cleanup_temp
 }
 trap cleanup_mount EXIT
 
-log "Mounting disk image and extracting filesystem..."
 sudo mount -o loop "$DISK_IMAGE" "$MOUNT_DIR"
-sudo tar -xf "$OUTPUT_DIR/viper-rootfs.tar" -C "$MOUNT_DIR"
-
-# Ensure agent is executable and properly configured
+sudo cp -a . "$MOUNT_DIR/"
 sudo chmod +x "$MOUNT_DIR/usr/local/bin/viper-agent"
 sudo chmod +x "$MOUNT_DIR/init"
 
-# Create qcow2 version for smaller size
-log "Creating qcow2 image..."
 QCOW2_IMAGE="$OUTPUT_DIR/viper-headless.qcow2"
 sudo umount "$MOUNT_DIR"
 qemu-img convert -f raw -O qcow2 -c "$DISK_IMAGE" "$QCOW2_IMAGE"
