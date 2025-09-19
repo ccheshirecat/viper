@@ -67,7 +67,7 @@ func (g *VMJobGenerator) GenerateVMJob(opts VMCreateOptions) (*nomadapi.Job, err
 				Networks: []*nomadapi.NetworkResource{
 					{
 						Mode: "bridge",
-						DynamicPorts: []*nomadapi.Port{
+						DynamicPorts: []nomadapi.Port{
 							{
 								Label: "agent",
 								To:    8080, // Agent listens on 8080 inside VM
@@ -88,7 +88,7 @@ func (g *VMJobGenerator) GenerateVMJob(opts VMCreateOptions) (*nomadapi.Job, err
 							{
 								Name:      "viper-agent",
 								PortLabel: "agent",
-								Checks: []*nomadapi.ServiceCheck{
+								Checks: []nomadapi.ServiceCheck{
 									{
 										Type:      "tcp",
 										PortLabel: "agent",
