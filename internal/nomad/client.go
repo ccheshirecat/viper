@@ -11,8 +11,7 @@ import (
 )
 
 type Client struct {
-	client         *nomadapi.Client
-	templateParser *TemplateParser
+	client *nomadapi.Client
 }
 
 type SystemStatus struct {
@@ -32,11 +31,8 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("failed to create Nomad client: %w", err)
 	}
 
-	templateParser := NewTemplateParser(client)
-
 	return &Client{
-		client:         client,
-		templateParser: templateParser,
+		client: client,
 	}, nil
 }
 
@@ -50,27 +46,7 @@ func (c *Client) SubmitJob(ctx context.Context, job *nomadapi.Job) (string, erro
 	return *job.ID, nil
 }
 
-func (c *Client) CreateVM(ctx context.Context, config types.VMConfig) (*types.VMStatus, error) {
-	job, err := c.templateParser.ParseJobTemplate(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse job template: %w", err)
-	}
-
-	jobID, err := c.SubmitJob(ctx, job)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register VM job: %w", err)
-	}
-
-	status := &types.VMStatus{
-		Name:     config.Name,
-		Status:   "pending",
-		Health:   "unknown",
-		Created:  time.Now(),
-		Contexts: []string{},
-	}
-
-	return status, nil
-}
+// Legacy CreateVM method removed - use job_generator.go instead
 
 func (c *Client) ListVMs(ctx context.Context) ([]types.VMStatus, error) {
 	jobs, _, err := c.client.Jobs().List(&nomadapi.QueryOptions{})

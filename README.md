@@ -37,7 +37,7 @@ Viper isn't just another browser library; it's the **Kubernetes of browsers**—
 - **Stateful Session Persistence**: Utilize hypervisor-level snapshots to save and resume the entire state of a VM, including browser sessions, cookies, and `localStorage`.
 - **Scalable Orchestration**: Leverages Nomad to manage the lifecycle of hundreds or thousands of microVMs across a cluster of machines.
 - **Production-Ready**: Built from day one with a "production-first" philosophy, emphasizing security, reliability, and professional-grade code.
-- **Developer-Friendly**: A clean CLI, reproducible Packer builds for VM images, and a powerful API for building custom solutions.
+- **Developer-Friendly**: A clean CLI, fast Docker-based VM image builds, and a powerful API for building custom solutions.
 
 ## Architecture Overview
 

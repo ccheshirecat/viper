@@ -139,10 +139,7 @@ clean: ## Clean build artifacts
 	rm -rf $(BIN_DIR) $(DIST_DIR) $(COVERAGE_DIR)
 	$(GO) clean -cache -testcache -modcache
 
-docker-build: ## Build Docker images
-	@echo "Building Docker images..."
-	docker build -f rootfs/Dockerfile -t viper-rootfs:$(VERSION) .
-	docker build -f docker/Dockerfile.agent -t viper-agent:$(VERSION) .
+# Legacy docker-build target removed - use build-images instead
 
 quality: check-format lint security-scan test ## Run all quality checks
 
@@ -172,8 +169,9 @@ watch-test: ## Watch for changes and run tests
 	fswatch -o . -e ".*" -i "\.go$$" | xargs -n1 -I{} make test-unit
 
 nomad-job: ## Generate Nomad job files
-	@echo "Nomad job files available in jobs/ directory"
-	@ls -la jobs/*.hcl
+	@echo "Nomad job files are generated dynamically via:"
+	@echo "  make build-images  # Creates job templates in dist/"
+	@echo "  viper vms create   # Generates and deploys jobs"
 
 # VM Image build targets (Docker-based)
 IMAGE_BUILD_DEPS := qemu-img mkfs.ext4
