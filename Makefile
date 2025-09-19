@@ -175,19 +175,19 @@ nomad-job: ## Generate Nomad job files
 	@echo "Nomad job files available in jobs/ directory"
 	@ls -la jobs/*.hcl
 
-# Rootfs build targets
-ROOTFS_DIR := rootfs
-OUT_DIR := out
-PACKER := packer
+# VM Image build targets (Docker-based)
+IMAGE_BUILD_DEPS := qemu-img mkfs.ext4
 
-rootfs-deps: ## Check rootfs build dependencies
-	@echo "Checking rootfs build dependencies..."
-	@if ! command -v $(PACKER) >/dev/null 2>&1; then \
-		echo "Error: Packer not found. Install from https://www.packer.io/downloads"; \
-		exit 1; \
-	fi
-	@if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then \
-		echo "Error: QEMU not found. Install with: brew install qemu"; \
+image-deps: ## Check VM image build dependencies
+	@echo "Checking VM image build dependencies..."
+	@for dep in $(IMAGE_BUILD_DEPS); do \
+		if ! command -v $$dep >/dev/null 2>&1; then \
+			echo "Error: $$dep not found. Install qemu-utils and e2fsprogs"; \
+			exit 1; \
+		fi \
+	done
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo "Error: Docker not found. Install Docker"; \
 		exit 1; \
 	fi
 	@if [ ! -f $(BIN_DIR)/$(AGENT_BINARY_NAME) ]; then \
@@ -195,37 +195,30 @@ rootfs-deps: ## Check rootfs build dependencies
 		$(MAKE) build-agent; \
 	fi
 
-rootfs-validate: rootfs-deps ## Validate Packer template
-	@echo "Validating Packer template..."
-	cd $(ROOTFS_DIR) && $(PACKER) validate alpine.pkr.hcl
+build-headless-image: image-deps ## Build headless Chrome VM image
+	@echo "Building headless Chrome VM image..."
+	mkdir -p $(DIST_DIR)
+	./images/headless/build.sh
 
-rootfs-build: rootfs-validate ## Build Alpine rootfs with viper-agent
-	@echo "Building Alpine rootfs image..."
-	mkdir -p $(OUT_DIR)
-	cd $(ROOTFS_DIR) && $(PACKER) build \
-		-var "version=$(VERSION)" \
-		alpine.pkr.hcl
-	@echo "Rootfs build complete. Image available in $(OUT_DIR)/"
+build-gpu-image: image-deps ## Build GPU-capable Alpine VM image (future)
+	@echo "GPU image build not yet implemented"
+	@echo "This will be available when VFIO support is added to the Nomad driver"
 
-rootfs-build-gpu: rootfs-validate ## Build GPU-enabled Alpine rootfs
-	@echo "Building GPU-enabled Alpine rootfs image..."
-	mkdir -p $(OUT_DIR)
-	cd $(ROOTFS_DIR) && $(PACKER) build \
-		-var "version=$(VERSION)-gpu" \
-		-var "enable_gpu=true" \
-		alpine.pkr.hcl
+build-images: build-headless-image ## Build all VM images
 
-rootfs-info: ## Show information about built images
-	@echo "Built rootfs images:"
-	@if [ -d $(OUT_DIR) ]; then \
-		find $(OUT_DIR) -name "*.qcow2" -exec ls -lh {} \; 2>/dev/null || echo "No images found"; \
+image-info: ## Show information about built VM images
+	@echo "Built VM images:"
+	@if [ -d $(DIST_DIR) ]; then \
+		find $(DIST_DIR) -name "*.qcow2" -exec ls -lh {} \; 2>/dev/null || echo "No images found"; \
+		find $(DIST_DIR) -name "*.img" -exec ls -lh {} \; 2>/dev/null || true; \
 	else \
-		echo "No output directory found. Run 'make rootfs-build' first."; \
+		echo "No dist directory found. Run 'make build-images' first."; \
 	fi
 
-rootfs-clean: ## Clean rootfs build artifacts
-	@echo "Cleaning rootfs build artifacts..."
-	rm -rf $(OUT_DIR)
+docker-clean: ## Clean Docker build artifacts
+	@echo "Cleaning Docker artifacts..."
+	-docker system prune -f
+	-docker image rm viper-headless:latest 2>/dev/null || true
 
 .PHONY: version
 version: ## Show version information

@@ -87,24 +87,25 @@ Hypervisor Stack:
 
 **Prerequisites:**
 - Go 1.21+
-- Packer
-- Nomad
-- A hypervisor environment with `libvirt` (QEMU on macOS, KVM/Cloud Hypervisor on Linux)
+- Docker
+- Nomad with [Cloud Hypervisor driver](https://github.com/ccheshirecat/nomad-driver-ch)
+- `qemu-utils` and `e2fsprogs` for image conversion
 
-**1. Build the Binaries & Rootfs:**
+**1. Build the Binaries & VM Images:**
 
-First, build the `viper` CLI, the `viper-agent`, and the Alpine Linux VM image using the provided Makefile.
+Viper uses a **Docker-based build pipeline** for speed and reliability. We build on `chromedp/headless-shell` and extract initramfs for Cloud Hypervisor.
 
 ```bash
 # Clone the repository
 git clone https://github.com/ccheshirecat/viper.git
 cd viper
 
-# Build the CLI and Agent binaries
-make build
+# Build CLI, Agent, and VM images in one command
+make ci-build
 
-# Build the microVM rootfs image (this may take a while)
-make rootfs-build
+# Or build step by step:
+make build        # Build CLI and Agent binaries
+make build-images # Create VM images from Docker
 
 ### 2. Start Nomad
 
