@@ -44,13 +44,18 @@ steps:
       ./bin/viper-agent --help || echo "Agent help not available (expected in VM context)"
 
       echo "--- Upload binaries as artifacts"
-      curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
-           -H "Authorization: Bearer $$REGISTRY_KEY" \
-           -F "file=@bin/viper;filename=viper-$${BUILDKITE_BUILD_NUMBER}"
+      if [ -n "$${REGISTRY_KEY}" ]; then
+        curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+             -H "Authorization: Bearer $$REGISTRY_KEY" \
+             -F "file=@bin/viper;filename=viper-$${BUILDKITE_BUILD_NUMBER}"
 
-      curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
-           -H "Authorization: Bearer $$REGISTRY_KEY" \
-           -F "file=@bin/viper-agent;filename=viper-agent-$${BUILDKITE_BUILD_NUMBER}"
+        curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+             -H "Authorization: Bearer $$REGISTRY_KEY" \
+             -F "file=@bin/viper-agent;filename=viper-agent-$${BUILDKITE_BUILD_NUMBER}"
+        echo "✅ Binaries uploaded to registry"
+      else
+        echo "⚠️ REGISTRY_KEY not set - skipping artifact upload"
+      fi
 
   - label: "🐳 Docker Image Build"
     agents:
@@ -63,12 +68,24 @@ steps:
       docker --version
       docker info
 
-      echo "--- Download agent binary from registry"
+      echo "--- Download agent binary from registry (if available)"
       mkdir -p bin
-      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${BUILDKITE_BUILD_NUMBER}
-      mv viper-agent-$${BUILDKITE_BUILD_NUMBER} bin/viper-agent
-      chmod +x bin/viper-agent
+      if [ -n "$${REGISTRY_KEY}" ]; then
+        curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+          https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${BUILDKITE_BUILD_NUMBER} || echo "Failed to download from registry"
+        if [ -f "viper-agent-$${BUILDKITE_BUILD_NUMBER}" ]; then
+          mv viper-agent-$${BUILDKITE_BUILD_NUMBER} bin/viper-agent
+          chmod +x bin/viper-agent
+          echo "✅ Agent binary downloaded from registry"
+        fi
+      fi
+
+      # Fallback: build agent binary if not downloaded
+      if [ ! -f "bin/viper-agent" ]; then
+        echo "Building agent binary locally..."
+        go build -trimpath -ldflags "-w -s" -o bin/viper-agent ./cmd/agent
+        chmod +x bin/viper-agent
+      fi
 
       echo "--- Verify required tools for image building"
       which docker
