@@ -12,8 +12,8 @@ import (
 // VMCreateOptions contains options for creating a VM
 type VMCreateOptions struct {
 	Name        string
-	Memory      int  // MB
-	CPU         int  // CPU shares (1000 = 1 core)
+	Memory      int // MB
+	CPU         int // CPU shares (1000 = 1 core)
 	NetworkMode types.NetworkMode
 	StaticIP    string // Only used if NetworkMode is Static
 	ImagePaths  ImagePaths
@@ -81,7 +81,7 @@ func (g *VMJobGenerator) GenerateVMJob(opts VMCreateOptions) (*nomadapi.Job, err
 						Driver: "nomad-driver-ch", // Your driver name
 						Config: g.generateTaskConfig(opts),
 						Resources: &nomadapi.Resources{
-							CPU:    pointer.Of(opts.CPU),
+							CPU:      pointer.Of(opts.CPU),
 							MemoryMB: pointer.Of(opts.Memory),
 						},
 						Services: []*nomadapi.Service{
@@ -90,10 +90,10 @@ func (g *VMJobGenerator) GenerateVMJob(opts VMCreateOptions) (*nomadapi.Job, err
 								PortLabel: "agent",
 								Checks: []*nomadapi.ServiceCheck{
 									{
-										Type:     "tcp",
+										Type:      "tcp",
 										PortLabel: "agent",
-										Interval: 30000000000, // 30s in nanoseconds
-										Timeout:  5000000000,  // 5s in nanoseconds
+										Interval:  30000000000, // 30s in nanoseconds
+										Timeout:   5000000000,  // 5s in nanoseconds
 									},
 								},
 							},
@@ -141,11 +141,11 @@ func (g *VMJobGenerator) generateTaskConfig(opts VMCreateOptions) map[string]int
 		}
 		config["network_interface"] = map[string]interface{}{
 			"bridge": map[string]interface{}{
-				"name":       g.defaultBridge,
-				"static_ip":  opts.StaticIP,
-				"gateway":    "192.168.1.1",
-				"netmask":    "24",
-				"dns":        []string{"8.8.8.8", "1.1.1.1"},
+				"name":      g.defaultBridge,
+				"static_ip": opts.StaticIP,
+				"gateway":   "192.168.1.1",
+				"netmask":   "24",
+				"dns":       []string{"8.8.8.8", "1.1.1.1"},
 			},
 		}
 
