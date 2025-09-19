@@ -44,13 +44,21 @@ steps:
       ./bin/viper-agent --help || echo "Agent help not available (expected in VM context)"
 
       echo "--- Upload binaries as artifacts"
-      curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
-           -H "Authorization: Bearer $$REGISTRY_KEY" \
-           -F "file=@bin/viper;filename=viper-$${BUILDKITE_BUILD_NUMBER}"
+      if [ -n "$${REGISTRY_KEY}" ]; then
+        # Use semantic version format required by Buildkite registry
+        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
 
-      curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
-           -H "Authorization: Bearer $$REGISTRY_KEY" \
-           -F "file=@bin/viper-agent;filename=viper-agent-$${BUILDKITE_BUILD_NUMBER}"
+        curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+             -H "Authorization: Bearer $$REGISTRY_KEY" \
+             -F "file=@bin/viper;filename=viper-$${SEMVER}"
+
+        curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+             -H "Authorization: Bearer $$REGISTRY_KEY" \
+             -F "file=@bin/viper-agent;filename=viper-agent-$${SEMVER}"
+        echo "✅ Binaries uploaded to registry"
+      else
+        echo "⚠️ REGISTRY_KEY not set - skipping artifact upload"
+      fi
 
   - label: "🐳 Docker Image Build"
     agents:
@@ -63,12 +71,25 @@ steps:
       docker --version
       docker info
 
-      echo "--- Download agent binary from registry"
+      echo "--- Download agent binary from registry (if available)"
       mkdir -p bin
-      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${BUILDKITE_BUILD_NUMBER}
-      mv viper-agent-$${BUILDKITE_BUILD_NUMBER} bin/viper-agent
-      chmod +x bin/viper-agent
+      if [ -n "$${REGISTRY_KEY}" ]; then
+        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+          https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${SEMVER} || echo "Failed to download from registry"
+        if [ -f "viper-agent-$${SEMVER}" ]; then
+          mv viper-agent-$${SEMVER} bin/viper-agent
+          chmod +x bin/viper-agent
+          echo "✅ Agent binary downloaded from registry"
+        fi
+      fi
+
+      # Fallback: build agent binary if not downloaded
+      if [ ! -f "bin/viper-agent" ]; then
+        echo "Building agent binary locally..."
+        go build -trimpath -ldflags "-w -s" -o bin/viper-agent ./cmd/agent
+        chmod +x bin/viper-agent
+      fi
 
       echo "--- Verify required tools for image building"
       which docker
@@ -81,16 +102,19 @@ steps:
       ls -la dist/
 
       echo "--- Upload VM artifacts to registry"
+      # Use semantic version format required by Buildkite registry
+      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+
       if [ -f "dist/vmlinuz" ]; then
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@dist/vmlinuz;filename=vmlinuz-$${BUILDKITE_BUILD_NUMBER}"
+             -F "file=@dist/vmlinuz;filename=vmlinuz-$${SEMVER}"
       fi
 
       if [ -f "dist/viper-initramfs.gz" ]; then
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@dist/viper-initramfs.gz;filename=viper-initramfs-$${BUILDKITE_BUILD_NUMBER}.gz"
+             -F "file=@dist/viper-initramfs.gz;filename=viper-initramfs-$${SEMVER}.gz"
       fi
 
       if [ -f "dist/viper-headless.qcow2" ]; then
@@ -99,7 +123,7 @@ steps:
 
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@dist/viper-headless.qcow2;filename=viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2"
+             -F "file=@dist/viper-headless.qcow2;filename=viper-headless-$${SEMVER}.qcow2"
       else
         echo "❌ VM image build failed"
         exit 1
@@ -119,22 +143,23 @@ steps:
 
       echo "--- Download VM artifacts from registry"
       mkdir -p dist
+      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
 
       echo "--- Download kernel"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${BUILDKITE_BUILD_NUMBER}
-      mv vmlinuz-$${BUILDKITE_BUILD_NUMBER} dist/vmlinuz
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${SEMVER}
+      mv vmlinuz-$${SEMVER} dist/vmlinuz
 
       echo "--- Download initramfs"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs-$${BUILDKITE_BUILD_NUMBER}.gz
-      mv viper-initramfs-$${BUILDKITE_BUILD_NUMBER}.gz dist/viper-initramfs.gz
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs-$${SEMVER}.gz
+      mv viper-initramfs-$${SEMVER}.gz dist/viper-initramfs.gz
 
       echo "--- Download qcow2 image (optional)"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 || true
-      if [ -f "viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2" ]; then
-        mv viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 dist/viper-headless.qcow2
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${SEMVER}.qcow2 || true
+      if [ -f "viper-headless-$${SEMVER}.qcow2" ]; then
+        mv viper-headless-$${SEMVER}.qcow2 dist/viper-headless.qcow2
       fi
 
       echo "--- Verify Cloud Hypervisor setup"
@@ -241,9 +266,10 @@ steps:
 
       echo "--- Download Viper CLI from registry"
       mkdir -p bin
+      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${BUILDKITE_BUILD_NUMBER}
-      mv viper-$${BUILDKITE_BUILD_NUMBER} bin/viper
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}
+      mv viper-$${SEMVER} bin/viper
       chmod +x bin/viper
 
       echo "--- Install Nomad (if not present)"
@@ -264,9 +290,9 @@ steps:
       echo "--- Download VM artifacts for CLI test"
       mkdir -p dist
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 || true
-      if [ -f "viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2" ]; then
-        mv viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 dist/viper-headless.qcow2
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${SEMVER}.qcow2 || true
+      if [ -f "viper-headless-$${SEMVER}.qcow2" ]; then
+        mv viper-headless-$${SEMVER}.qcow2 dist/viper-headless.qcow2
         echo "--- Validate CLI can parse VM image"
         ls -la dist/viper-headless.qcow2
         echo "VM image size: $$(du -h dist/viper-headless.qcow2 | cut -f1)"
