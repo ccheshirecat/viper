@@ -17,9 +17,9 @@ import (
 
 func main() {
 	var (
-		listen  = flag.String("listen", ":8080", "HTTP listen address")
-		vmName  = flag.String("vm-name", "", "VM name identifier")
-		taskDir = flag.String("task-dir", "/var/viper/tasks", "Task storage directory")
+		listen      = flag.String("listen", ":8080", "HTTP listen address")
+		vmName      = flag.String("vm-name", "", "VM name identifier")
+		taskDir     = flag.String("task-dir", "/var/viper/tasks", "Task storage directory")
 		initNetwork = flag.Bool("init-network", true, "Initialize network interfaces (when running as PID 1)")
 	)
 	flag.Parse()
@@ -138,9 +138,9 @@ func mountEssentialFilesystems() error {
 func setupDeviceNodes() error {
 	// Create basic device nodes if they don't exist
 	devices := []struct {
-		name, path string
+		name, path   string
 		major, minor int
-		mode os.FileMode
+		mode         os.FileMode
 	}{
 		{"null", "/dev/null", 1, 3, 0666},
 		{"zero", "/dev/zero", 1, 5, 0666},
