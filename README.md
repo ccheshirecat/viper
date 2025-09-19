@@ -37,7 +37,7 @@ Viper isn't just another browser library; it's the **Kubernetes of browsers**—
 - **Stateful Session Persistence**: Utilize hypervisor-level snapshots to save and resume the entire state of a VM, including browser sessions, cookies, and `localStorage`.
 - **Scalable Orchestration**: Leverages Nomad to manage the lifecycle of hundreds or thousands of microVMs across a cluster of machines.
 - **Production-Ready**: Built from day one with a "production-first" philosophy, emphasizing security, reliability, and professional-grade code.
-- **Developer-Friendly**: A clean CLI, reproducible Packer builds for VM images, and a powerful API for building custom solutions.
+- **Developer-Friendly**: A clean CLI, fast Docker-based VM image builds, and a powerful API for building custom solutions.
 
 ## Architecture Overview
 
@@ -87,24 +87,25 @@ Hypervisor Stack:
 
 **Prerequisites:**
 - Go 1.21+
-- Packer
-- Nomad
-- A hypervisor environment with `libvirt` (QEMU on macOS, KVM/Cloud Hypervisor on Linux)
+- Docker
+- Nomad with [Cloud Hypervisor driver](https://github.com/ccheshirecat/nomad-driver-ch)
+- `qemu-utils` and `e2fsprogs` for image conversion
 
-**1. Build the Binaries & Rootfs:**
+**1. Build the Binaries & VM Images:**
 
-First, build the `viper` CLI, the `viper-agent`, and the Alpine Linux VM image using the provided Makefile.
+Viper uses a **Docker-based build pipeline** for speed and reliability. We build on `chromedp/headless-shell` and extract initramfs for Cloud Hypervisor.
 
 ```bash
 # Clone the repository
 git clone https://github.com/ccheshirecat/viper.git
 cd viper
 
-# Build the CLI and Agent binaries
-make build
+# Build CLI, Agent, and VM images in one command
+make ci-build
 
-# Build the microVM rootfs image (this may take a while)
-make rootfs-build
+# Or build step by step:
+make build        # Build CLI and Agent binaries
+make build-images # Create VM images from Docker
 
 ### 2. Start Nomad
 
