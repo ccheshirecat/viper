@@ -27,41 +27,123 @@ func vmCmd() *cobra.Command {
 }
 
 func vmCreateCmd() *cobra.Command {
-	var config types.VMConfig
+	var (
+		memory      int
+		cpu         int
+		networkMode string
+		staticIP    string
+		imagePath   string
+		bridge      string
+		datacenter  string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "create [name]",
-		Short: "Create a new microVM",
-		Long:  "Create and start a new microVM with the specified configuration.",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			config.Name = args[0]
+		Short: "Create a new microVM with Cloud Hypervisor",
+		Long: `Create and start a new microVM using nomad-driver-ch.
 
+The VM will boot using kernel + initramfs from the Docker build pipeline.
+Browser automation is available immediately via the built-in viper-agent.
+
+Examples:
+  # Create VM with private subnet networking (default)
+  viper vms create my-vm
+
+  # Create VM with static IP
+  viper vms create my-vm --network-mode static --static-ip 192.168.1.150
+
+  # Create VM with custom resources
+  viper vms create my-vm --memory 2048 --cpu 2000`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			name := args[0]
+
+			// Parse network mode
+			var netMode types.NetworkMode
+			switch networkMode {
+			case "private", "private_subnet":
+				netMode = types.NetworkModePrivateSubnet
+			case "static", "static_ip":
+				netMode = types.NetworkModeStaticIP
+			case "host", "host_shared":
+				netMode = types.NetworkModeHostShared
+			default:
+				netMode = types.NetworkModePrivateSubnet
+			}
+
+			// Resolve image paths
+			if imagePath == "" {
+				imagePath = "./dist" // Default to local build output
+			}
+			imagePaths := nomad.ResolveImagePaths(imagePath)
+
+			// Validate required files exist
+			if err := validateImageFiles(imagePaths); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				fmt.Println("\nRun 'make build-images' to create VM images first.")
+				os.Exit(1)
+			}
+
+			// Create job generator
+			generator := nomad.NewVMJobGenerator(datacenter, bridge, imagePaths)
+
+			// Generate job
+			opts := nomad.VMCreateOptions{
+				Name:        name,
+				Memory:      memory,
+				CPU:         cpu,
+				NetworkMode: netMode,
+				StaticIP:    staticIP,
+				ImagePaths:  imagePaths,
+			}
+
+			job, err := generator.GenerateVMJob(opts)
+			checkError(err)
+
+			// Deploy via Nomad API
 			client, err := nomad.NewClient()
 			checkError(err)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			vmStatus, err := client.CreateVM(ctx, config)
+			jobID, err := client.SubmitJob(ctx, job)
 			checkError(err)
 
-			fmt.Printf("VM %s created successfully\n", vmStatus.Name)
-			fmt.Printf("Status: %s\n", vmStatus.Status)
-			if vmStatus.AgentURL != "" {
-				fmt.Printf("Agent URL: %s\n", vmStatus.AgentURL)
+			fmt.Printf("✅ VM '%s' deployed successfully\n", name)
+			fmt.Printf("Job ID: %s\n", jobID)
+			fmt.Printf("Network Mode: %s\n", netMode)
+			if netMode == types.NetworkModeStaticIP && staticIP != "" {
+				fmt.Printf("Static IP: %s\n", staticIP)
 			}
+			fmt.Println("\nWait a moment for the VM to boot, then check status:")
+			fmt.Printf("  nomad job status %s\n", name)
+			fmt.Printf("  viper browsers spawn %s ctx1\n", name)
 		},
 	}
 
-	cmd.Flags().StringVar(&config.VMM, "vmm", "cloudhypervisor", "VMM to use (cloudhypervisor, firecracker)")
-	cmd.Flags().IntVar(&config.Contexts, "contexts", 1, "Number of browser contexts to support")
-	cmd.Flags().BoolVar(&config.GPU, "gpu", false, "Enable GPU passthrough")
-	cmd.Flags().IntVar(&config.Memory, "memory", 2048, "Memory allocation in MB")
-	cmd.Flags().IntVar(&config.CPUs, "cpus", 2, "Number of CPUs to allocate")
-	cmd.Flags().IntVar(&config.Disk, "disk", 8192, "Disk size in MB")
+	// Add flags
+	cmd.Flags().IntVar(&memory, "memory", 1024, "Memory allocation in MB")
+	cmd.Flags().IntVar(&cpu, "cpu", 1000, "CPU allocation (1000 = 1 core)")
+	cmd.Flags().StringVar(&networkMode, "network-mode", "private", "Network mode: private, static, host")
+	cmd.Flags().StringVar(&staticIP, "static-ip", "", "Static IP address (for static mode)")
+	cmd.Flags().StringVar(&imagePath, "image-path", "./dist", "Path to VM images (kernel, initramfs)")
+	cmd.Flags().StringVar(&bridge, "bridge", "br0", "Bridge name for VM networking")
+	cmd.Flags().StringVar(&datacenter, "datacenter", "dc1", "Nomad datacenter")
 
 	return cmd
+}
+
+// validateImageFiles checks that required VM image files exist
+func validateImageFiles(paths nomad.ImagePaths) error {
+	if _, err := os.Stat(paths.Kernel); os.IsNotExist(err) {
+		return fmt.Errorf("kernel not found: %s", paths.Kernel)
+	}
+	if _, err := os.Stat(paths.Initramfs); os.IsNotExist(err) {
+		return fmt.Errorf("initramfs not found: %s", paths.Initramfs)
+	}
+	// Disk image is optional
+	return nil
 }
 
 func vmListCmd() *cobra.Command {

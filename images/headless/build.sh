@@ -129,9 +129,10 @@ log "Raw image:  $DISK_IMAGE ($RAW_SIZE)"
 log "QCOW2 image: $QCOW2_IMAGE ($QCOW2_SIZE)"
 log "Use the QCOW2 image with your Cloud Hypervisor Nomad driver"
 
-# Generate job template example
-cat > "$OUTPUT_DIR/example-job.hcl" << 'EOF'
-job "viper-test" {
+# Generate job template examples for nomad-driver-ch
+cat > "$OUTPUT_DIR/viper-private-subnet.hcl" << 'EOF'
+# Viper VM with Private Subnet Networking
+job "viper-browser" {
   datacenters = ["dc1"]
   type        = "service"
 
@@ -139,20 +140,26 @@ job "viper-test" {
     count = 1
 
     task "viper-vm" {
-      driver = "virt"
+      driver = "nomad-driver-ch"
 
       config {
+        # Use our generated kernel + initramfs (required by your driver)
+        kernel = "/path/to/vmlinuz"
+        initramfs = "/path/to/viper-initramfs.gz"
+
+        # Optional: disk image for persistence
         image = "/path/to/viper-headless.qcow2"
+
         hostname = "viper-browser"
 
-        # Boot directly to our agent
-        cmdline = "console=ttyS0 init=/init"
+        # Agent starts as PID 1 and handles network setup
+        cmdline = "console=ttyS0 init=/usr/local/bin/viper-agent"
 
-        # Network configuration
+        # Private subnet networking - driver assigns IP from pool
         network_interface {
           bridge {
             name = "br0"
-            # static_ip will be assigned automatically or via DHCP
+            # IP will be auto-assigned from pool (e.g., 192.168.1.100-200)
           }
         }
       }
@@ -162,14 +169,14 @@ job "viper-test" {
         memory = 1024  # 1GB RAM
       }
 
-      # Health check for the agent
+      # Service discovery for agent
       service {
         name = "viper-agent"
-        port = "http"
+        port = "agent"
 
         check {
           type     = "tcp"
-          port     = "http"
+          port     = "agent"
           interval = "30s"
           timeout  = "5s"
         }
@@ -177,12 +184,69 @@ job "viper-test" {
     }
 
     network {
-      port "http" {
-        to = 8080
+      port "agent" {
+        to = 8080  # Agent listens on 8080 inside VM
       }
     }
   }
 }
 EOF
 
-log "Example Nomad job template created at: $OUTPUT_DIR/example-job.hcl"
+cat > "$OUTPUT_DIR/viper-static-ip.hcl" << 'EOF'
+# Viper VM with Static IP Assignment
+job "viper-browser-static" {
+  datacenters = ["dc1"]
+  type        = "service"
+
+  group "browser" {
+    count = 1
+
+    task "viper-vm" {
+      driver = "nomad-driver-ch"
+
+      config {
+        kernel = "/path/to/vmlinuz"
+        initramfs = "/path/to/viper-initramfs.gz"
+        image = "/path/to/viper-headless.qcow2"
+
+        hostname = "viper-browser-static"
+        cmdline = "console=ttyS0 init=/usr/local/bin/viper-agent"
+
+        # Static IP networking for predictable agent communication
+        network_interface {
+          bridge {
+            name = "br0"
+            static_ip = "192.168.1.150"
+            gateway = "192.168.1.1"
+            netmask = "24"
+            dns = ["8.8.8.8", "1.1.1.1"]
+          }
+        }
+      }
+
+      resources {
+        cpu    = 1000
+        memory = 1024
+      }
+
+      service {
+        name = "viper-agent-static"
+        address = "192.168.1.150"
+        port = 8080
+
+        check {
+          type     = "tcp"
+          address  = "192.168.1.150"
+          port     = 8080
+          interval = "30s"
+          timeout  = "5s"
+        }
+      }
+    }
+  }
+}
+EOF
+
+log "✅ Nomad job templates created:"
+log "  - Private subnet: $OUTPUT_DIR/viper-private-subnet.hcl"
+log "  - Static IP:      $OUTPUT_DIR/viper-static-ip.hcl"

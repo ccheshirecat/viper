@@ -113,3 +113,26 @@ type AgentHealth struct {
 	LastCheck   time.Time         `json:"last_check"`   // last health check time
 	Details     map[string]string `json:"details"`      // additional health info
 }
+
+// NetworkMode represents different VM networking strategies
+type NetworkMode string
+
+const (
+	// NetworkModePrivateSubnet uses bridge networking with auto-assigned IPs
+	NetworkModePrivateSubnet NetworkMode = "private_subnet"
+
+	// NetworkModeStaticIP uses bridge networking with predefined static IPs
+	NetworkModeStaticIP NetworkMode = "static_ip"
+
+	// NetworkModeHostShared shares the host network namespace
+	NetworkModeHostShared NetworkMode = "host_shared"
+)
+
+// VMNetworkConfig contains network configuration for a VM
+type VMNetworkConfig struct {
+	Mode     NetworkMode `json:"mode"`
+	StaticIP string      `json:"static_ip,omitempty"`
+	Bridge   string      `json:"bridge,omitempty"`
+	Gateway  string      `json:"gateway,omitempty"`
+	DNS      []string    `json:"dns,omitempty"`
+}

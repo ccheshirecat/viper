@@ -40,13 +40,23 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
+// SubmitJob submits a job to Nomad and returns the job ID
+func (c *Client) SubmitJob(ctx context.Context, job *nomadapi.Job) (string, error) {
+	_, _, err := c.client.Jobs().Register(job, &nomadapi.WriteOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to register job: %w", err)
+	}
+
+	return *job.ID, nil
+}
+
 func (c *Client) CreateVM(ctx context.Context, config types.VMConfig) (*types.VMStatus, error) {
 	job, err := c.templateParser.ParseJobTemplate(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse job template: %w", err)
 	}
 
-	_, _, err = c.client.Jobs().Register(job, &nomadapi.WriteOptions{})
+	jobID, err := c.SubmitJob(ctx, job)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register VM job: %w", err)
 	}
