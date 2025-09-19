@@ -1,0 +1,25 @@
+packer {
+  required_version = ">= 1.9.0"
+  required_plugins {
+    libvirt = {
+      version = ">= 1.0.0"
+      source  = "github.com/dmacvicar/packer-plugin-libvirt"
+    }
+  }
+}
+
+variable "version" {
+  type    = string
+  default = "v0.1.0"
+}
+
+variable "output_dir" {
+  type    = string
+  default = "out"
+}
+
+variable "disk_size" {
+  type    = number
+  default = 2048
+}
+
