@@ -269,10 +269,25 @@ steps:
       echo "--- Download Viper CLI from registry"
       mkdir -p bin
       SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
-      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin
-      mv viper-$${SEMVER}.bin bin/viper
-      chmod +x bin/viper
+      echo "Downloading viper-$${SEMVER}.bin from registry..."
+      if curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin; then
+        if [ -f "viper-$${SEMVER}.bin" ]; then
+          mv viper-$${SEMVER}.bin bin/viper
+          chmod +x bin/viper
+          echo "✅ Viper CLI downloaded successfully"
+        else
+          echo "❌ Download succeeded but file not found: viper-$${SEMVER}.bin"
+          ls -la
+          exit 1
+        fi
+      else
+        echo "❌ Failed to download Viper CLI from registry"
+        echo "Falling back to building locally..."
+        go build -trimpath -ldflags "-w -s" -o bin/viper ./cmd/viper
+        chmod +x bin/viper
+        echo "✅ Viper CLI built locally"
+      fi
 
       echo "--- Install Nomad (if not present)"
       if ! command -v nomad >/dev/null 2>&1; then
@@ -281,6 +296,11 @@ steps:
         cd /tmp && unzip nomad.zip && sudo mv nomad /usr/local/bin/
         nomad --version
       fi
+
+      echo "--- Debug: Check workspace contents"
+      pwd
+      ls -la
+      ls -la bin/ || echo "bin/ directory not found"
 
       echo "--- Test Viper CLI basic commands"
       ./bin/viper --version
