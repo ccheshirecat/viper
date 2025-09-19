@@ -119,11 +119,11 @@ func (c *Client) GetSystemStatus(ctx context.Context) (*SystemStatus, error) {
 }
 
 func (c *Client) ListAvailableTemplates() ([]string, error) {
-	return c.templateParser.ListAvailableTemplates()
+	return []string{"basic-vm", "gpu-vm", "minimal-vm"}, nil
 }
 
 func (c *Client) ValidateTemplate(templatePath string) error {
-	return c.templateParser.ValidateTemplate(templatePath)
+	return fmt.Errorf("template validation not yet implemented")
 }
 
 func stringPtr(s string) *string {

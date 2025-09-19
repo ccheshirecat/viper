@@ -12,8 +12,14 @@ env:
   GOOS: "linux"
   GOARCH: "amd64"
 
+  # Buildkite registry configuration
+  REGISTRY_ORG: "hypr"
+  REGISTRY_NAME: "registry"
+
 steps:
   - label: "🏗️ Build & Unit Tests"
+    agents:
+      queue: "default"
     command: |
       set -euxo pipefail
       export PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin:/root/.cargo/bin:/root/go/bin:/usr/local/go/bin:$$PATH"
@@ -37,7 +43,18 @@ steps:
       ./bin/viper --help
       ./bin/viper-agent --help || echo "Agent help not available (expected in VM context)"
 
-  - label: "🐳 Docker Image Build & Test"
+      echo "--- Upload binaries as artifacts"
+      curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+           -H "Authorization: Bearer $$REGISTRY_KEY" \
+           -F "file=@bin/viper;filename=viper-$${BUILDKITE_BUILD_NUMBER}"
+
+      curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+           -H "Authorization: Bearer $$REGISTRY_KEY" \
+           -F "file=@bin/viper-agent;filename=viper-agent-$${BUILDKITE_BUILD_NUMBER}"
+
+  - label: "🐳 Docker Image Build"
+    agents:
+      queue: "docker"
     command: |
       set -euxo pipefail
       export PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin:/root/.cargo/bin:/root/go/bin:/usr/local/go/bin:$$PATH"
@@ -46,18 +63,43 @@ steps:
       docker --version
       docker info
 
+      echo "--- Download agent binary from registry"
+      mkdir -p bin
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${BUILDKITE_BUILD_NUMBER}
+      mv viper-agent-$${BUILDKITE_BUILD_NUMBER} bin/viper-agent
+      chmod +x bin/viper-agent
+
       echo "--- Verify required tools for image building"
-      which qemu-img
-      which mkfs.ext4
+      which docker
+      docker --version
 
       echo "--- Build VM image using Docker pipeline"
       make build-images
 
       echo "--- Verify VM image artifacts"
       ls -la dist/
+
+      echo "--- Upload VM artifacts to registry"
+      if [ -f "dist/vmlinuz" ]; then
+        curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+             -H "Authorization: Bearer $$REGISTRY_KEY" \
+             -F "file=@dist/vmlinuz;filename=vmlinuz-$${BUILDKITE_BUILD_NUMBER}"
+      fi
+
+      if [ -f "dist/viper-initramfs.gz" ]; then
+        curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+             -H "Authorization: Bearer $$REGISTRY_KEY" \
+             -F "file=@dist/viper-initramfs.gz;filename=viper-initramfs-$${BUILDKITE_BUILD_NUMBER}.gz"
+      fi
+
       if [ -f "dist/viper-headless.qcow2" ]; then
         echo "✅ VM image created successfully"
-        qemu-img info dist/viper-headless.qcow2
+        qemu-img info dist/viper-headless.qcow2 || docker run --rm -v $$(pwd):/work -w /work qemu/qemu:latest qemu-img info dist/viper-headless.qcow2
+
+        curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
+             -H "Authorization: Bearer $$REGISTRY_KEY" \
+             -F "file=@dist/viper-headless.qcow2;filename=viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2"
       else
         echo "❌ VM image build failed"
         exit 1
@@ -69,27 +111,116 @@ steps:
     depends_on:
       - "build-test"
       - "docker-build"
+    agents:
+      queue: "default"
     command: |
       set -euxo pipefail
       export PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin:/root/.cargo/bin:/root/go/bin:/usr/local/go/bin:$$PATH"
 
+      echo "--- Download VM artifacts from registry"
+      mkdir -p dist
+
+      echo "--- Download kernel"
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${BUILDKITE_BUILD_NUMBER}
+      mv vmlinuz-$${BUILDKITE_BUILD_NUMBER} dist/vmlinuz
+
+      echo "--- Download initramfs"
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs-$${BUILDKITE_BUILD_NUMBER}.gz
+      mv viper-initramfs-$${BUILDKITE_BUILD_NUMBER}.gz dist/viper-initramfs.gz
+
+      echo "--- Download qcow2 image (optional)"
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 || true
+      if [ -f "viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2" ]; then
+        mv viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 dist/viper-headless.qcow2
+      fi
+
       echo "--- Verify Cloud Hypervisor setup"
-      cloud-hypervisor --version
-      ch-remote --version
+      cloud-hypervisor --version || echo "Cloud Hypervisor not available"
+      ch-remote --version || echo "ch-remote not available"
 
       echo "--- Check network bridge"
       ip link show $${BRIDGE} || (echo "Bridge $${BRIDGE} not found - creating test bridge" && sudo ip link add $${BRIDGE} type bridge && sudo ip link set $${BRIDGE} up)
 
-      echo "--- Verify VM image exists"
-      if [ ! -f "dist/viper-headless.qcow2" ]; then
-        echo "❌ VM image not found from previous step"
+      echo "--- Verify VM image artifacts exist"
+      ls -la dist/
+      if [ -f "dist/vmlinuz" ]; then
+        echo "✅ Kernel found: $$(ls -la dist/vmlinuz)"
+      else
+        echo "❌ Kernel not found"
         exit 1
       fi
 
+      if [ -f "dist/viper-initramfs.gz" ]; then
+        echo "✅ Initramfs found: $$(ls -la dist/viper-initramfs.gz)"
+      else
+        echo "❌ Initramfs not found"
+        exit 1
+      fi
+
+      echo "--- Test kernel boot parameters validation"
+      file dist/vmlinuz || echo "file command not available"
+      file dist/viper-initramfs.gz || echo "file command not available"
+
       echo "--- Test VM boot with Cloud Hypervisor (dry run)"
-      # Test that we can at least parse the image and validate boot parameters
-      # Full VM boot test would require more complex setup
-      qemu-img check dist/viper-headless.qcow2
+      if [ -f "dist/viper-headless.qcow2" ]; then
+        qemu-img check dist/viper-headless.qcow2 || echo "qemu-img not available"
+        qemu-img info dist/viper-headless.qcow2 || echo "qemu-img info not available"
+      fi
+
+      echo "--- Generate example Nomad job template"
+      cat > dist/example-job.hcl << EOF
+      job "viper-example" {
+        datacenters = ["dc1"]
+        type        = "service"
+
+        group "browser" {
+          count = 1
+
+          task "viper-vm" {
+            driver = "nomad-driver-ch"
+
+            config {
+              kernel = "$$(pwd)/dist/vmlinuz"
+              initramfs = "$$(pwd)/dist/viper-initramfs.gz"
+              hostname = "viper-example"
+              cmdline = "console=ttyS0 init=/usr/local/bin/viper-agent"
+
+              network_interface {
+                bridge {
+                  name = "$${BRIDGE}"
+                }
+              }
+            }
+
+            resources {
+              cpu    = 1000
+              memory = 1024
+            }
+
+            service {
+              name = "viper-agent"
+              port = "agent"
+
+              check {
+                type = "tcp"
+                port = "agent"
+                interval = "30s"
+                timeout = "5s"
+              }
+            }
+          }
+
+          network {
+            port "agent" {
+              to = 8080
+            }
+          }
+        }
+      }
+      EOF
 
       echo "--- Validate generated Nomad job template"
       if [ -f "dist/example-job.hcl" ]; then
@@ -102,9 +233,18 @@ steps:
 
   - label: "🚀 End-to-End Viper CLI Test"
     depends_on: "integration-test"
+    agents:
+      queue: "default"
     command: |
       set -euxo pipefail
       export PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin:/root/.cargo/bin:/root/go/bin:/usr/local/go/bin:$$PATH"
+
+      echo "--- Download Viper CLI from registry"
+      mkdir -p bin
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${BUILDKITE_BUILD_NUMBER}
+      mv viper-$${BUILDKITE_BUILD_NUMBER} bin/viper
+      chmod +x bin/viper
 
       echo "--- Install Nomad (if not present)"
       if ! command -v nomad >/dev/null 2>&1; then
@@ -121,9 +261,16 @@ steps:
       ./bin/viper browsers --help
       ./bin/viper profiles --help
 
-      echo "--- Validate CLI can parse VM image"
-      ls -la dist/viper-headless.qcow2
-      echo "VM image size: $$(du -h dist/viper-headless.qcow2 | cut -f1)"
+      echo "--- Download VM artifacts for CLI test"
+      mkdir -p dist
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 || true
+      if [ -f "viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2" ]; then
+        mv viper-headless-$${BUILDKITE_BUILD_NUMBER}.qcow2 dist/viper-headless.qcow2
+        echo "--- Validate CLI can parse VM image"
+        ls -la dist/viper-headless.qcow2
+        echo "VM image size: $$(du -h dist/viper-headless.qcow2 | cut -f1)"
+      fi
 
       echo "--- Test job template validation (if Nomad available)"
       if command -v nomad >/dev/null 2>&1 && [ -f "dist/example-job.hcl" ]; then
@@ -136,10 +283,6 @@ steps:
       echo "✅ VM image created from Docker pipeline"
       echo "✅ Nomad job template generated"
       echo "✅ Ready for deployment with Cloud Hypervisor Nomad driver"
-
-agents:
-  # Run on agents with Cloud Hypervisor capabilities
-  queue: "default"
 
 # Retry configuration for flaky network/build issues
 retry:

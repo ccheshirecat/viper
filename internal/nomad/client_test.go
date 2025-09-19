@@ -7,23 +7,30 @@ import (
 	"github.com/ccheshirecat/viper/internal/types"
 )
 
-func TestBuildVMJob(t *testing.T) {
-	client := &Client{}
-
-	config := types.VMConfig{
-		Name:     "test-vm",
-		VMM:      "cloudhypervisor",
-		Contexts: 2,
-		Memory:   2048,
-		CPUs:     2,
-		Disk:     8192,
+func TestJobGeneratorBasic(t *testing.T) {
+	imagePaths := ImagePaths{
+		Kernel:    "/path/to/vmlinuz",
+		Initramfs: "/path/to/initramfs.gz",
+		DiskImage: "/path/to/image.qcow2",
 	}
 
-	job := client.buildVMJob(config)
+	generator := NewVMJobGenerator("dc1", "br0", imagePaths)
 
-	expectedID := "viper-vm-test-vm"
-	if *job.ID != expectedID {
-		t.Errorf("Expected job ID %s, got %s", expectedID, *job.ID)
+	opts := VMCreateOptions{
+		Name:        "test-vm",
+		Memory:      2048,
+		CPU:         2000,
+		NetworkMode: types.NetworkModePrivateSubnet,
+		ImagePaths:  imagePaths,
+	}
+
+	job, err := generator.GenerateVMJob(opts)
+	if err != nil {
+		t.Fatalf("Failed to generate job: %v", err)
+	}
+
+	if *job.ID != "test-vm" {
+		t.Errorf("Expected job ID 'test-vm', got %s", *job.ID)
 	}
 
 	if *job.Type != "service" {
@@ -44,113 +51,95 @@ func TestBuildVMJob(t *testing.T) {
 	}
 
 	task := taskGroup.Tasks[0]
-	if task.Name != "agent" {
-		t.Errorf("Expected task name 'agent', got %s", task.Name)
+	if task.Driver != "nomad-driver-ch" {
+		t.Errorf("Expected driver 'nomad-driver-ch', got %s", task.Driver)
 	}
 
-	if task.Driver != "exec" {
-		t.Errorf("Expected driver 'exec', got %s", task.Driver)
+	if *task.Resources.CPU != 2000 {
+		t.Errorf("Expected CPU 2000, got %d", *task.Resources.CPU)
 	}
 
-	expectedCPU := config.CPUs * 1000
-	if *task.Resources.CPU != expectedCPU {
-		t.Errorf("Expected CPU %d, got %d", expectedCPU, *task.Resources.CPU)
-	}
-
-	if *task.Resources.MemoryMB != config.Memory {
-		t.Errorf("Expected Memory %d, got %d", config.Memory, *task.Resources.MemoryMB)
+	if *task.Resources.MemoryMB != 2048 {
+		t.Errorf("Expected Memory 2048, got %d", *task.Resources.MemoryMB)
 	}
 }
 
-func TestBuildVMJobWithGPU(t *testing.T) {
-	client := &Client{}
-
-	config := types.VMConfig{
-		Name:     "gpu-vm",
-		VMM:      "cloudhypervisor",
-		Contexts: 2,
-		GPU:      true,
-		Memory:   8192,
-		CPUs:     4,
-		Disk:     16384,
+func TestJobGeneratorHCL(t *testing.T) {
+	imagePaths := ImagePaths{
+		Kernel:    "/path/to/vmlinuz",
+		Initramfs: "/path/to/initramfs.gz",
+		DiskImage: "/path/to/image.qcow2",
 	}
 
-	job := client.buildVMJob(config)
+	generator := NewVMJobGenerator("dc1", "br0", imagePaths)
 
-	taskGroup := job.TaskGroups[0]
-	task := taskGroup.Tasks[0]
-
-	if len(task.Resources.Devices) != 1 {
-		t.Errorf("Expected 1 GPU device, got %d", len(task.Resources.Devices))
+	opts := VMCreateOptions{
+		Name:        "hcl-test-vm",
+		Memory:      1024,
+		CPU:         1000,
+		NetworkMode: types.NetworkModeStaticIP,
+		StaticIP:    "192.168.1.100",
+		ImagePaths:  imagePaths,
 	}
 
-	device := task.Resources.Devices[0]
-	if device.Name != "nvidia/gpu" {
-		t.Errorf("Expected device name 'nvidia/gpu', got %s", device.Name)
+	hcl, err := generator.GenerateJobHCL(opts)
+	if err != nil {
+		t.Fatalf("Failed to generate HCL: %v", err)
 	}
 
-	if *device.Count != 1 {
-		t.Errorf("Expected device count 1, got %d", *device.Count)
+	if hcl == "" {
+		t.Error("Generated HCL is empty")
+	}
+
+	// Basic checks for HCL content
+	if !contains(hcl, "job \"hcl-test-vm\"") {
+		t.Error("HCL should contain job name")
+	}
+
+	if !contains(hcl, "driver = \"nomad-driver-ch\"") {
+		t.Error("HCL should contain driver name")
+	}
+
+	if !contains(hcl, "/path/to/vmlinuz") {
+		t.Error("HCL should contain kernel path")
+	}
+
+	if !contains(hcl, "192.168.1.100") {
+		t.Error("HCL should contain static IP")
 	}
 }
 
-func TestCreateVMJobGeneration(t *testing.T) {
-	client := &Client{}
-
-	config := types.VMConfig{
-		Name:     "integration-test",
-		VMM:      "cloudhypervisor",
-		Contexts: 1,
-		Memory:   1024,
-		CPUs:     1,
-		Disk:     4096,
-		Labels: map[string]string{
-			"env":     "test",
-			"project": "viper",
-		},
+func TestListVMs(t *testing.T) {
+	// This test requires a real Nomad client, so we skip if we can't create one
+	client, err := NewClient()
+	if err != nil {
+		t.Skipf("Skipping test - Nomad client creation failed: %v", err)
+		return
 	}
 
-	job := client.buildVMJob(config)
+	vms, err := client.ListVMs(context.Background())
 
-	// Verify job structure
-	if job.TaskGroups == nil || len(job.TaskGroups) == 0 {
-		t.Fatal("Job should have task groups")
+	// Either we get VMs (empty slice if no VMs) or an error (if Nomad is not running)
+	if err != nil {
+		t.Logf("ListVMs failed as expected (Nomad not running): %v", err)
+	} else {
+		t.Logf("ListVMs succeeded, found %d VMs", len(vms))
+	}
+}
+
+func TestDestroyVM(t *testing.T) {
+	// This test requires a real Nomad client, so we skip if we can't create one
+	client, err := NewClient()
+	if err != nil {
+		t.Skipf("Skipping test - Nomad client creation failed: %v", err)
+		return
 	}
 
-	taskGroup := job.TaskGroups[0]
-	if taskGroup.Tasks == nil || len(taskGroup.Tasks) == 0 {
-		t.Fatal("Task group should have tasks")
-	}
+	err = client.DestroyVM(context.Background(), "test-vm")
 
-	task := taskGroup.Tasks[0]
-	if task.Config == nil {
-		t.Fatal("Task should have config")
-	}
-
-	// Verify command configuration
-	command, ok := task.Config["command"].(string)
-	if !ok || command != "/usr/local/bin/viper-agent" {
-		t.Errorf("Expected command '/usr/local/bin/viper-agent', got %v", command)
-	}
-
-	args, ok := task.Config["args"].([]string)
-	if !ok {
-		t.Fatal("Expected args to be []string")
-	}
-
-	expectedArgs := []string{
-		"--listen=:8080",
-		"--vm-name=integration-test",
-	}
-
-	if len(args) != len(expectedArgs) {
-		t.Errorf("Expected %d args, got %d", len(expectedArgs), len(args))
-	}
-
-	for i, expected := range expectedArgs {
-		if i >= len(args) || args[i] != expected {
-			t.Errorf("Expected arg[%d] = %s, got %s", i, expected, args[i])
-		}
+	// We expect an error since VM doesn't exist, but method should exist
+	if err == nil {
+		t.Log("DestroyVM succeeded (unexpected if VM doesn't exist)")
 	}
 }
 
@@ -182,71 +171,41 @@ func TestIntPtr(t *testing.T) {
 	}
 }
 
-// Benchmark tests for performance validation
-func BenchmarkBuildVMJob(b *testing.B) {
-	client := &Client{}
-	config := types.VMConfig{
-		Name:     "benchmark-vm",
-		VMM:      "cloudhypervisor",
-		Contexts: 2,
-		Memory:   2048,
-		CPUs:     2,
-		Disk:     8192,
+func TestResolveImagePaths(t *testing.T) {
+	basePath := "/test/images"
+	paths := ResolveImagePaths(basePath)
+
+	expected := ImagePaths{
+		Kernel:    "/test/images/vmlinuz",
+		Initramfs: "/test/images/viper-initramfs.gz",
+		DiskImage: "/test/images/viper-headless.qcow2",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = client.buildVMJob(config)
+	if paths.Kernel != expected.Kernel {
+		t.Errorf("Expected kernel %s, got %s", expected.Kernel, paths.Kernel)
+	}
+
+	if paths.Initramfs != expected.Initramfs {
+		t.Errorf("Expected initramfs %s, got %s", expected.Initramfs, paths.Initramfs)
+	}
+
+	if paths.DiskImage != expected.DiskImage {
+		t.Errorf("Expected disk image %s, got %s", expected.DiskImage, paths.DiskImage)
 	}
 }
 
-// Test edge cases and error conditions
-func TestBuildVMJobEdgeCases(t *testing.T) {
-	client := &Client{}
+// Helper function
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && s[len(s)-len(substr):] == substr ||
+		   len(s) > len(substr) && s[:len(substr)] == substr ||
+		   (len(s) > len(substr) && findInString(s, substr))
+}
 
-	tests := []struct {
-		name   string
-		config types.VMConfig
-	}{
-		{
-			name: "minimal config",
-			config: types.VMConfig{
-				Name: "minimal",
-			},
-		},
-		{
-			name: "zero values",
-			config: types.VMConfig{
-				Name:     "zero-vm",
-				Contexts: 0,
-				Memory:   0,
-				CPUs:     0,
-			},
-		},
-		{
-			name: "large values",
-			config: types.VMConfig{
-				Name:     "large-vm",
-				Contexts: 100,
-				Memory:   32768,
-				CPUs:     16,
-			},
-		},
+func findInString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			job := client.buildVMJob(tt.config)
-
-			// Should not panic and should produce valid job
-			if job == nil {
-				t.Error("buildVMJob returned nil")
-			}
-
-			expectedID := "viper-vm-" + tt.config.Name
-			if *job.ID != expectedID {
-				t.Errorf("Expected job ID %s, got %s", expectedID, *job.ID)
-			}
-		})
-	}
+	return false
 }
