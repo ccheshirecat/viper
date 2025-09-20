@@ -79,7 +79,7 @@ func (g *VMJobGenerator) GenerateVMJob(opts VMCreateOptions) (*nomadapi.Job, err
 				Tasks: []*nomadapi.Task{
 					{
 						Name:   opts.Name + "-vm",
-						Driver: "nomad-driver-ch", // nomad-driver-ch driver name
+						Driver: "ch", // nomad-driver-ch registers as "ch"
 						Config: g.generateTaskConfig(opts),
 						Resources: &nomadapi.Resources{
 							CPU:      pointer.Of(opts.CPU),
@@ -190,7 +190,7 @@ func (g *VMJobGenerator) GenerateJobHCL(opts VMCreateOptions) (string, error) {
     count = 1
 
     task "%s-vm" {
-      driver = "nomad-driver-ch"
+      driver = "ch"
 
       config {
         kernel = "%s"

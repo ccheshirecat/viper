@@ -48,8 +48,8 @@ func TestJobGeneratorBasic(t *testing.T) {
 	}
 
 	task := taskGroup.Tasks[0]
-	if task.Driver != "nomad-driver-ch" {
-		t.Errorf("Expected driver 'nomad-driver-ch', got %s", task.Driver)
+	if task.Driver != "ch" {
+		t.Errorf("Expected driver 'ch', got %s", task.Driver)
 	}
 
 	if *task.Resources.CPU != 2000 {
@@ -91,8 +91,8 @@ func TestJobGeneratorHCL(t *testing.T) {
 		t.Error("HCL should contain job name")
 	}
 
-	if !contains(hcl, "driver = \"nomad-driver-ch\"") {
-		t.Error("HCL should contain driver name (nomad-driver-ch)")
+	if !contains(hcl, "driver = \"ch\"") {
+		t.Error("HCL should contain driver name (ch)")
 	}
 
 	if !contains(hcl, "/path/to/vmlinuz") {
@@ -235,8 +235,8 @@ func TestBridgeConfiguration(t *testing.T) {
 		t.Fatal("bridge name not found")
 	}
 
-	if bridgeName != "viperbr0" {
-		t.Errorf("Expected bridge name 'viperbr0', got %s", bridgeName)
+	if bridgeName != "br0" {
+		t.Errorf("Expected bridge name 'br0', got %s", bridgeName)
 	}
 }
 

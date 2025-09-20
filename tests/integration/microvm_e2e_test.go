@@ -165,7 +165,7 @@ func createTestMicroVMJob(jobID, vmName string) *nomadapi.Job {
 				Tasks: []*nomadapi.Task{
 					{
 						Name:   "microvm",
-						Driver: "nomad-driver-ch", // nomad-driver-ch driver name
+						Driver: "ch", // nomad-driver-ch registers as "ch"
 						Config: map[string]interface{}{
 							// Use a minimal test image - in production this would be the viper image
 							"image": "/var/lib/images/test-alpine.img",

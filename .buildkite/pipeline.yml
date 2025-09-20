@@ -258,7 +258,6 @@ steps:
               initramfs = "$$(pwd)/dist/viper-initramfs.gz"
               disk = "$$(pwd)/dist/viper-headless.qcow2"
               hostname = "viper-example"
-              primary_disk_size = "2G"
               cmdline = "console=ttyS0 init=/usr/local/bin/viper-agent"
 
               network_interface {
