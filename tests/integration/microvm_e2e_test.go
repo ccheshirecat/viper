@@ -10,9 +10,9 @@ import (
 	"github.com/ccheshirecat/viper/internal/nomad"
 	"github.com/ccheshirecat/viper/internal/types"
 	"github.com/ccheshirecat/viper/pkg/client"
+	nomadapi "github.com/hashicorp/nomad/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	nomadapi "github.com/hashicorp/nomad/api"
 )
 
 // TestMicroVMEndToEnd tests the complete end-to-end workflow with real nomad-driver-ch
@@ -187,7 +187,7 @@ func createTestMicroVMJob(jobID, vmName string) *nomadapi.Job {
 						},
 						Resources: &nomadapi.Resources{
 							CPU:      intPtr(1000), // 1 CPU core
-							MemoryMB: intPtr(1024),  // 1GB RAM
+							MemoryMB: intPtr(1024), // 1GB RAM
 							Networks: []*nomadapi.NetworkResource{
 								{
 									MBits: intPtr(100),

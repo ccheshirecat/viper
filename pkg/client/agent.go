@@ -28,7 +28,7 @@ func NewAgentClient(vmName string) (*AgentClient, error) {
 	}
 
 	client := &AgentClient{
-		vmName:      vmName,
+		vmName: vmName,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},

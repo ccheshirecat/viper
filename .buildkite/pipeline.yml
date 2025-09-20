@@ -69,7 +69,7 @@ steps:
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
              -F "file=@bin/viper-agent;filename=viper-agent-$${SEMVER}.bin"
-        echo "✅ Binaries uploaded to registry with version: $${SEMVER}"
+        echo "✅ Binaries uploaded to registry"
       else
         echo "⚠️ REGISTRY_KEY not set - skipping artifact upload"
       fi
@@ -97,13 +97,12 @@ steps:
           SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
           echo "Using fallback version: $${SEMVER}"
         fi
-
         curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
           https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${SEMVER}.bin || echo "Failed to download from registry"
         if [ -f "viper-agent-$${SEMVER}.bin" ]; then
           mv viper-agent-$${SEMVER}.bin bin/viper-agent
           chmod +x bin/viper-agent
-          echo "✅ Agent binary downloaded from registry with version: $${SEMVER}"
+          echo "✅ Agent binary downloaded from registry"
         fi
       fi
 
