@@ -251,11 +251,12 @@ steps:
           count = 1
 
           task "viper-vm" {
-            driver = "virt"
+            driver = "ch"
 
             config {
               kernel = "$$(pwd)/dist/vmlinuz"
               initramfs = "$$(pwd)/dist/viper-initramfs.gz"
+              disk = "$$(pwd)/dist/viper-headless.qcow2"
               hostname = "viper-example"
               cmdline = "console=ttyS0 init=/usr/local/bin/viper-agent"
 
