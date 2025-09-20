@@ -2,7 +2,7 @@ env:
   # Cloud Hypervisor configuration
   CH_BIN: "/usr/bin/cloud-hypervisor"
   CH_REMOTE_BIN: "/usr/bin/ch-remote"
-  BRIDGE: "br0"
+  BRIDGE: "viperbr0"
 
   # VM test images (these should be pre-built on agents)
   VM_IMAGE_PATH: "/root/viper-test-images"
@@ -541,7 +541,7 @@ steps:
 
       echo "--- Start Nomad with nomad-driver-ch"
       # Set bridge name for job template
-      export BRIDGE=br0
+      export BRIDGE=viperbr0
       # Assume Nomad is already configured with the driver on this agent
       nomad node status
 

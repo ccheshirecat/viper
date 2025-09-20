@@ -158,7 +158,7 @@ job "viper-browser" {
         # Private subnet networking - driver assigns IP from pool
         network_interface {
           bridge {
-            name = "br0"
+            name = "viperbr0"
             # IP will be auto-assigned from pool (e.g., 192.168.1.100-200)
           }
         }
@@ -215,7 +215,7 @@ job "viper-browser-static" {
         # Static IP networking for predictable agent communication
         network_interface {
           bridge {
-            name = "br0"
+            name = "viperbr0"
             static_ip = "192.168.1.150"
             gateway = "192.168.1.1"
             netmask = "24"
