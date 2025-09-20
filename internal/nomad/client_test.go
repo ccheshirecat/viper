@@ -235,8 +235,8 @@ func TestBridgeConfiguration(t *testing.T) {
 		t.Fatal("bridge name not found")
 	}
 
-	if bridgeName != "br0" {
-		t.Errorf("Expected bridge name 'br0', got %s", bridgeName)
+	if bridgeName != "viperbr0" {
+		t.Errorf("Expected bridge name 'viperbr0', got %s", bridgeName)
 	}
 }
 
