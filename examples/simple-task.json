@@ -1,0 +1,6 @@
+{
+  "id": "example-task-1",
+  "vm_id": "test-vm",
+  "url": "https://example.com",
+  "timeout": "30s"
+}

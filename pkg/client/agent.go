@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ccheshirecat/viper/internal/nomad"
 	"github.com/ccheshirecat/viper/internal/types"
 )
 
@@ -18,7 +19,20 @@ type AgentClient struct {
 }
 
 func NewAgentClient(vmName string) (*AgentClient, error) {
-	baseURL := fmt.Sprintf("http://%s:8080", vmName)
+	// Create Nomad client to resolve VM IP address
+	nomadClient, err := nomad.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Nomad client for VM IP resolution: %w", err)
+	}
+
+	// Resolve the VM name to actual agent URL via Nomad service discovery
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	baseURL, err := nomadClient.ResolveVMAgentURL(ctx, vmName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve IP for VM '%s': %w\nMake sure VM is running: viper vms list", vmName, err)
+	}
 
 	return &AgentClient{
 		baseURL: baseURL,
