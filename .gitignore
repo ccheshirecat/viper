@@ -34,19 +34,8 @@ go.work.sum
 # Claude Code configuration
 .claude/
 CLAUDE.md
-.taskmaster/templates/example_prd.txt
-.taskmaster/state.json
-.taskmaster/docs/current-state-analysis.md
-.taskmaster/config.json
-.taskmaster/CLAUDE.md
+.taskmaster
 .mcp.json
-Bin/*
+bin/*
 .DS_STORE
-.taskmaster/.DS_Store
-cmd/.DS_Store
-internal/.DS_Store
-tests/.DS_Store
 .DS_Store
-.DS_Store
-.DS_Store
-worktrees/tests/
