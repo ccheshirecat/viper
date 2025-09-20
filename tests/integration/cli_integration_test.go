@@ -40,7 +40,7 @@ func TestCLIVMLifecycle(t *testing.T) {
 		},
 		{
 			name:     "create vm",
-			command:  []string{"vms", "create", testVM, "--memory", "1024", "--cpus", "1"},
+			command:  []string{"vms", "create", testVM, "--memory", "2048", "--cpu", "2000"},
 			wantCode: 0,
 		},
 		{

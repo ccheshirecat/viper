@@ -45,7 +45,7 @@ func TestNomadJobTemplate(t *testing.T) {
 	require.NoError(t, err)
 
 	jobContent := string(content)
-	assert.Contains(t, jobContent, `driver = "ch"`, "Should use Cloud Hypervisor driver")
+	assert.Contains(t, jobContent, `driver = "nomad-driver-ch"`, "Should use Cloud Hypervisor driver")
 	assert.Contains(t, jobContent, "vmlinuz", "Should reference kernel")
 	assert.Contains(t, jobContent, "viper-initramfs.gz", "Should reference initramfs")
 	assert.Contains(t, jobContent, "viper-headless.qcow2", "Should reference rootfs disk")

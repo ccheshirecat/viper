@@ -3,8 +3,6 @@ package nomad
 import (
 	"context"
 	"testing"
-
-	"github.com/ccheshirecat/viper/internal/types"
 )
 
 func TestJobGeneratorBasic(t *testing.T) {
@@ -14,14 +12,13 @@ func TestJobGeneratorBasic(t *testing.T) {
 		DiskImage: "/path/to/image.qcow2",
 	}
 
-	generator := NewVMJobGenerator("dc1", "br0", imagePaths)
+	generator := NewVMJobGenerator("dc1", imagePaths)
 
 	opts := VMCreateOptions{
-		Name:        "test-vm",
-		Memory:      2048,
-		CPU:         2000,
-		NetworkMode: types.NetworkModePrivateSubnet,
-		ImagePaths:  imagePaths,
+		Name:       "test-vm",
+		Memory:     2048,
+		CPU:        2000,
+		ImagePaths: imagePaths,
 	}
 
 	job, err := generator.GenerateVMJob(opts)
@@ -51,8 +48,8 @@ func TestJobGeneratorBasic(t *testing.T) {
 	}
 
 	task := taskGroup.Tasks[0]
-	if task.Driver != "ch" {
-		t.Errorf("Expected driver 'ch' (nomad-driver-ch registers as ch), got %s", task.Driver)
+	if task.Driver != "nomad-driver-ch" {
+		t.Errorf("Expected driver 'nomad-driver-ch', got %s", task.Driver)
 	}
 
 	if *task.Resources.CPU != 2000 {
@@ -71,15 +68,13 @@ func TestJobGeneratorHCL(t *testing.T) {
 		DiskImage: "/path/to/image.qcow2",
 	}
 
-	generator := NewVMJobGenerator("dc1", "br0", imagePaths)
+	generator := NewVMJobGenerator("dc1", imagePaths)
 
 	opts := VMCreateOptions{
-		Name:        "hcl-test-vm",
-		Memory:      1024,
-		CPU:         1000,
-		NetworkMode: types.NetworkModeStaticIP,
-		StaticIP:    "192.168.1.100",
-		ImagePaths:  imagePaths,
+		Name:       "hcl-test-vm",
+		Memory:     1024,
+		CPU:        1000,
+		ImagePaths: imagePaths,
 	}
 
 	hcl, err := generator.GenerateJobHCL(opts)
@@ -96,16 +91,16 @@ func TestJobGeneratorHCL(t *testing.T) {
 		t.Error("HCL should contain job name")
 	}
 
-	if !contains(hcl, "driver = \"ch\"") {
-		t.Error("HCL should contain driver name (ch)")
+	if !contains(hcl, "driver = \"nomad-driver-ch\"") {
+		t.Error("HCL should contain driver name (nomad-driver-ch)")
 	}
 
 	if !contains(hcl, "/path/to/vmlinuz") {
 		t.Error("HCL should contain kernel path")
 	}
 
-	if !contains(hcl, "192.168.1.100") {
-		t.Error("HCL should contain static IP")
+	if !contains(hcl, "viperbr0") {
+		t.Error("HCL should contain default bridge name")
 	}
 }
 
@@ -191,6 +186,57 @@ func TestResolveImagePaths(t *testing.T) {
 
 	if paths.DiskImage != expected.DiskImage {
 		t.Errorf("Expected disk image %s, got %s", expected.DiskImage, paths.DiskImage)
+	}
+}
+
+func TestBridgeConfiguration(t *testing.T) {
+	imagePaths := ImagePaths{
+		Kernel:    "/path/to/vmlinuz",
+		Initramfs: "/path/to/initramfs.gz",
+	}
+
+	// Test with default configuration
+	generator := NewVMJobGenerator("dc1", imagePaths)
+	_, config, err := generator.DebugGenerateJob(VMCreateOptions{
+		Name:       "test-vm",
+		ImagePaths: imagePaths,
+	})
+	if err != nil {
+		t.Fatalf("Failed to generate job: %v", err)
+	}
+
+	// Check that bridge is set to default
+	if config == nil {
+		t.Fatal("Task config is nil")
+	}
+
+	taskConfig, ok := config["network_interface"]
+	if !ok {
+		t.Fatal("network_interface not found in config")
+	}
+
+	networkInterface, ok := taskConfig.(map[string]interface{})
+	if !ok {
+		t.Fatal("network_interface is not a map")
+	}
+
+	bridgeConfig, ok := networkInterface["bridge"]
+	if !ok {
+		t.Fatal("bridge config not found")
+	}
+
+	bridgeMap, ok := bridgeConfig.(map[string]interface{})
+	if !ok {
+		t.Fatal("bridge config is not a map")
+	}
+
+	bridgeName, ok := bridgeMap["name"]
+	if !ok {
+		t.Fatal("bridge name not found")
+	}
+
+	if bridgeName != "viperbr0" {
+		t.Errorf("Expected bridge name 'viperbr0', got %s", bridgeName)
 	}
 }
 

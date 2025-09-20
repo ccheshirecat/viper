@@ -22,6 +22,7 @@ func Execute() error {
 }
 
 func init() {
+	rootCmd.AddCommand(setupCmd()) // Setup command first
 	rootCmd.AddCommand(vmCmd())
 	rootCmd.AddCommand(taskCmd())
 	rootCmd.AddCommand(browserCmd())

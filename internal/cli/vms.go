@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ccheshirecat/viper/internal/nomad"
-	"github.com/ccheshirecat/viper/internal/types"
 	"github.com/spf13/cobra"
 )
 
@@ -28,13 +27,11 @@ func vmCmd() *cobra.Command {
 
 func vmCreateCmd() *cobra.Command {
 	var (
-		memory      int
-		cpu         int
-		networkMode string
-		staticIP    string
-		imagePath   string
-		bridge      string
-		datacenter  string
+		memory     int
+		cpu        int
+		imagePath  string
+		datacenter string
+		debug      bool
 	)
 
 	cmd := &cobra.Command{
@@ -42,34 +39,25 @@ func vmCreateCmd() *cobra.Command {
 		Short: "Create a new microVM with Cloud Hypervisor",
 		Long: `Create and start a new microVM using nomad-driver-ch.
 
-The VM will boot using kernel + initramfs from the Docker build pipeline.
-Browser automation is available immediately via the built-in viper-agent.
+The VM will boot using kernel + initramfs and automatically get:
+- Private network with automatic IP assignment
+- Service discovery for browser automation
+- Default resources (2GB RAM, 2 CPU cores)
+
+Run 'viper setup' first to configure networking automatically.
 
 Examples:
-  # Create VM with private subnet networking (default)
+  # Create VM with defaults (recommended)
   viper vms create my-vm
 
-  # Create VM with static IP
-  viper vms create my-vm --network-mode static --static-ip 192.168.1.150
-
   # Create VM with custom resources
-  viper vms create my-vm --memory 2048 --cpu 2000`,
+  viper vms create my-vm --memory 4096 --cpu 4000
+
+  # Show configuration without creating
+  viper vms create my-vm --debug`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			name := args[0]
-
-			// Parse network mode
-			var netMode types.NetworkMode
-			switch networkMode {
-			case "private", "private_subnet":
-				netMode = types.NetworkModePrivateSubnet
-			case "static", "static_ip":
-				netMode = types.NetworkModeStaticIP
-			case "host", "host_shared":
-				netMode = types.NetworkModeHostShared
-			default:
-				netMode = types.NetworkModePrivateSubnet
-			}
 
 			// Resolve image paths
 			if imagePath == "" {
@@ -77,24 +65,41 @@ Examples:
 			}
 			imagePaths := nomad.ResolveImagePaths(imagePath)
 
-			// Validate required files exist
-			if err := validateImageFiles(imagePaths); err != nil {
-				fmt.Printf("Error: %v\n", err)
-				fmt.Println("\nRun 'make build-images' to create VM images first.")
-				os.Exit(1)
+			// Validate required files exist (skip in debug mode)
+			if !debug {
+				if err := validateImageFiles(imagePaths); err != nil {
+					fmt.Printf("Error: %v\n", err)
+					fmt.Println("\nRun 'make build-images' to create VM images first.")
+					os.Exit(1)
+				}
+			} else {
+				// Use dummy image paths for debug mode
+				imagePaths = nomad.ImagePaths{
+					Kernel:    "/path/to/vmlinuz",
+					Initramfs: "/path/to/initramfs.gz",
+				}
 			}
 
-			// Create job generator
-			generator := nomad.NewVMJobGenerator(datacenter, bridge, imagePaths)
+			// Create job generator with opinionated defaults
+			generator := nomad.NewVMJobGenerator(datacenter, imagePaths)
 
-			// Generate job
+			// Generate job with defaults
 			opts := nomad.VMCreateOptions{
-				Name:        name,
-				Memory:      memory,
-				CPU:         cpu,
-				NetworkMode: netMode,
-				StaticIP:    staticIP,
-				ImagePaths:  imagePaths,
+				Name:       name,
+				Memory:     memory,
+				CPU:        cpu,
+				ImagePaths: imagePaths,
+			}
+
+			if debug {
+				// Show HCL configuration instead of submitting
+				hcl, err := generator.GenerateJobHCL(opts)
+				checkError(err)
+
+				fmt.Printf("=== Generated Nomad Job HCL ===\n")
+				fmt.Printf("%s\n", hcl)
+				fmt.Printf("=== End HCL ===\n")
+				return
 			}
 
 			job, err := generator.GenerateVMJob(opts)
@@ -110,26 +115,20 @@ Examples:
 			jobID, err := client.SubmitJob(ctx, job)
 			checkError(err)
 
-			fmt.Printf("✅ VM '%s' deployed successfully\n", name)
+			fmt.Printf("✅ VM '%s' created successfully!\n", name)
 			fmt.Printf("Job ID: %s\n", jobID)
-			fmt.Printf("Network Mode: %s\n", netMode)
-			if netMode == types.NetworkModeStaticIP && staticIP != "" {
-				fmt.Printf("Static IP: %s\n", staticIP)
-			}
 			fmt.Println("\nWait a moment for the VM to boot, then check status:")
 			fmt.Printf("  nomad job status %s\n", name)
 			fmt.Printf("  viper browsers spawn %s ctx1\n", name)
 		},
 	}
 
-	// Add flags
-	cmd.Flags().IntVar(&memory, "memory", 1024, "Memory allocation in MB")
-	cmd.Flags().IntVar(&cpu, "cpu", 1000, "CPU allocation (1000 = 1 core)")
-	cmd.Flags().StringVar(&networkMode, "network-mode", "private", "Network mode: private, static, host")
-	cmd.Flags().StringVar(&staticIP, "static-ip", "", "Static IP address (for static mode)")
+	// Add flags - keep it simple!
+	cmd.Flags().IntVar(&memory, "memory", 2048, "Memory allocation in MB (default: 2048)")
+	cmd.Flags().IntVar(&cpu, "cpu", 2000, "CPU allocation (1000 = 1 core, default: 2000)")
 	cmd.Flags().StringVar(&imagePath, "image-path", "./dist", "Path to VM images (kernel, initramfs)")
-	cmd.Flags().StringVar(&bridge, "bridge", "br0", "Bridge name for VM networking")
-	cmd.Flags().StringVar(&datacenter, "datacenter", "dc1", "Nomad datacenter")
+	cmd.Flags().StringVar(&datacenter, "datacenter", "viper", "Nomad datacenter")
+	cmd.Flags().BoolVar(&debug, "debug", false, "Show job configuration without submitting")
 
 	return cmd
 }
