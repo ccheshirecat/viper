@@ -303,7 +303,7 @@ steps:
       fi
 
       echo "--- Run VM Integration Tests (requires artifacts)"
-      go test -v ./tests/integration/vm_artifacts_test.go || (echo "❌ CRITICAL: VM integration tests failed" && exit 1)
+      go test -v ./tests/integration/ -run "^Test(VMImageExists|NomadJobTemplate)$$" || (echo "❌ CRITICAL: VM integration tests failed" && exit 1)
 
 
   - label: "🔍 Service Discovery & Agent Tests"
