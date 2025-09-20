@@ -42,7 +42,7 @@ steps:
       go run examples/test-service-discovery.go || (echo "❌ CRITICAL: Service discovery test failed - this breaks the core functionality" && exit 1)
 
       echo "--- Integration Tests (short mode - REQUIRED)"
-      go test -short ./tests/integration/... || (echo "❌ CRITICAL: Integration tests failed - build artifacts missing" && exit 1)
+      go test -short ./tests/integration/... -skip "TestVMImageExists|TestNomadJobTemplate" || (echo "❌ CRITICAL: Integration tests failed - build artifacts missing" && exit 1)
 
       echo "--- Build binaries"
       make build
@@ -64,11 +64,11 @@ steps:
 
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@bin/viper;filename=viper-$${SEMVER}.bin"
+             -F "file=@bin/viper"
 
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@bin/viper-agent;filename=viper-agent-$${SEMVER}.bin"
+             -F "file=@bin/viper-agent"
         echo "✅ Binaries uploaded to registry"
       else
         echo "⚠️ REGISTRY_KEY not set - skipping artifact upload"
@@ -136,13 +136,13 @@ steps:
       if [ -f "dist/vmlinuz" ]; then
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@dist/vmlinuz;filename=vmlinuz-$${SEMVER}.bin"
+             -F "file=@dist/vmlinuz"
       fi
 
       if [ -f "dist/viper-initramfs.gz" ]; then
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@dist/viper-initramfs.gz;filename=viper-initramfs-$${SEMVER}.gz"
+             -F "file=@dist/viper-initramfs.gz"
       fi
 
       if [ -f "dist/viper-headless.qcow2" ]; then
@@ -151,7 +151,7 @@ steps:
 
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
-             -F "file=@dist/viper-headless.qcow2;filename=viper-headless-$${SEMVER}.qcow2"
+             -F "file=@dist/viper-headless.qcow2"
       else
         echo "❌ VM image build failed"
         exit 1
@@ -289,6 +289,9 @@ steps:
         echo "❌ No Nomad job template found"
         exit 1
       fi
+
+      echo "--- Run VM Integration Tests (requires artifacts)"
+      go test -v ./tests/integration/... -run "TestVMImageExists|TestNomadJobTemplate" || (echo "❌ CRITICAL: VM integration tests failed" && exit 1)
 
   - label: "🔍 Service Discovery & Agent Tests"
     key: "service-discovery-test"
