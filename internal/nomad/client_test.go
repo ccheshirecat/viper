@@ -51,8 +51,8 @@ func TestJobGeneratorBasic(t *testing.T) {
 	}
 
 	task := taskGroup.Tasks[0]
-	if task.Driver != "nomad-driver-ch" {
-		t.Errorf("Expected driver 'nomad-driver-ch', got %s", task.Driver)
+	if task.Driver != "ch" {
+		t.Errorf("Expected driver 'ch' (nomad-driver-ch registers as ch), got %s", task.Driver)
 	}
 
 	if *task.Resources.CPU != 2000 {
@@ -96,8 +96,8 @@ func TestJobGeneratorHCL(t *testing.T) {
 		t.Error("HCL should contain job name")
 	}
 
-	if !contains(hcl, "driver = \"nomad-driver-ch\"") {
-		t.Error("HCL should contain driver name")
+	if !contains(hcl, "driver = \"ch\"") {
+		t.Error("HCL should contain driver name (ch)")
 	}
 
 	if !contains(hcl, "/path/to/vmlinuz") {
