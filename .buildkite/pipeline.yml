@@ -53,8 +53,14 @@ steps:
 
       echo "--- Upload binaries as artifacts"
       if [ -n "$${REGISTRY_KEY}" ]; then
-        # Use semantic version format required by Buildkite registry
-        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        # Use semantic version from GitHub Actions if available, otherwise fallback to build number
+        if [ -n "$${RELEASE_VERSION}" ]; then
+          SEMVER="$${RELEASE_VERSION}"
+          echo "Using GitHub Actions version: $${SEMVER}"
+        else
+          SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+          echo "Using fallback version: $${SEMVER}"
+        fi
 
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
@@ -63,7 +69,7 @@ steps:
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
              -H "Authorization: Bearer $$REGISTRY_KEY" \
              -F "file=@bin/viper-agent;filename=viper-agent-$${SEMVER}.bin"
-        echo "✅ Binaries uploaded to registry"
+        echo "✅ Binaries uploaded to registry with version: $${SEMVER}"
       else
         echo "⚠️ REGISTRY_KEY not set - skipping artifact upload"
       fi
@@ -83,13 +89,21 @@ steps:
       echo "--- Download agent binary from registry (if available)"
       mkdir -p bin
       if [ -n "$${REGISTRY_KEY}" ]; then
-        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        # Use semantic version from GitHub Actions if available, otherwise fallback to build number
+        if [ -n "$${RELEASE_VERSION}" ]; then
+          SEMVER="$${RELEASE_VERSION}"
+          echo "Using GitHub Actions version: $${SEMVER}"
+        else
+          SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+          echo "Using fallback version: $${SEMVER}"
+        fi
+
         curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
           https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-agent-$${SEMVER}.bin || echo "Failed to download from registry"
         if [ -f "viper-agent-$${SEMVER}.bin" ]; then
           mv viper-agent-$${SEMVER}.bin bin/viper-agent
           chmod +x bin/viper-agent
-          echo "✅ Agent binary downloaded from registry"
+          echo "✅ Agent binary downloaded from registry with version: $${SEMVER}"
         fi
       fi
 
@@ -111,8 +125,14 @@ steps:
       ls -la dist/
 
       echo "--- Upload VM artifacts to registry"
-      # Use semantic version format required by Buildkite registry
-      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+      # Use semantic version from GitHub Actions if available, otherwise fallback to build number
+      if [ -n "$${RELEASE_VERSION}" ]; then
+        SEMVER="$${RELEASE_VERSION}"
+        echo "Using GitHub Actions version: $${SEMVER}"
+      else
+        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        echo "Using fallback version: $${SEMVER}"
+      fi
 
       if [ -f "dist/vmlinuz" ]; then
         curl -X POST https://api.buildkite.com/v2/packages/organizations/$$REGISTRY_ORG/registries/$$REGISTRY_NAME/packages \
@@ -151,7 +171,14 @@ steps:
 
       echo "--- Download VM artifacts from registry"
       mkdir -p dist
-      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+      # Use semantic version from GitHub Actions if available, otherwise fallback to build number
+      if [ -n "$${RELEASE_VERSION}" ]; then
+        SEMVER="$${RELEASE_VERSION}"
+        echo "Using GitHub Actions version: $${SEMVER}"
+      else
+        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        echo "Using fallback version: $${SEMVER}"
+      fi
 
       echo "--- Download kernel"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
@@ -275,7 +302,14 @@ steps:
 
       echo "--- Download Viper CLI from registry for testing"
       mkdir -p bin
-      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+      # Use semantic version from GitHub Actions if available, otherwise fallback to build number
+      if [ -n "$${RELEASE_VERSION}" ]; then
+        SEMVER="$${RELEASE_VERSION}"
+        echo "Using GitHub Actions version: $${SEMVER}"
+      else
+        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        echo "Using fallback version: $${SEMVER}"
+      fi
       if curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
         https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin; then
         mv viper-$${SEMVER}.bin bin/viper
@@ -339,7 +373,14 @@ steps:
 
       echo "--- Download Viper CLI from registry"
       mkdir -p bin
-      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+      # Use semantic version from GitHub Actions if available, otherwise fallback to build number
+      if [ -n "$${RELEASE_VERSION}" ]; then
+        SEMVER="$${RELEASE_VERSION}"
+        echo "Using GitHub Actions version: $${SEMVER}"
+      else
+        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        echo "Using fallback version: $${SEMVER}"
+      fi
       echo "Downloading viper-$${SEMVER}.bin from registry..."
       if curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
         https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin; then
@@ -453,7 +494,14 @@ steps:
 
       echo "--- Download all artifacts for microVM testing"
       mkdir -p bin dist
-      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+      # Use semantic version from GitHub Actions if available, otherwise fallback to build number
+      if [ -n "$${RELEASE_VERSION}" ]; then
+        SEMVER="$${RELEASE_VERSION}"
+        echo "Using GitHub Actions version: $${SEMVER}"
+      else
+        SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+        echo "Using fallback version: $${SEMVER}"
+      fi
 
       # Download binaries
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \

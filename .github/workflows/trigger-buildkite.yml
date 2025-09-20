@@ -1,0 +1,97 @@
+name: Trigger Buildkite Build
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.1.0, v1.2.3, etc.
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      tag:
+        description: 'Tag to build (e.g., v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+jobs:
+  trigger-buildkite:
+    name: Trigger Buildkite Pipeline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for proper tag handling
+
+      - name: Extract version information
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual trigger - use input tag
+            TAG="${{ github.event.inputs.tag }}"
+            echo "Using manual tag: $TAG"
+          else
+            # Push trigger - use pushed tag
+            TAG="${{ github.ref_name }}"
+            echo "Using pushed tag: $TAG"
+          fi
+
+          # Remove 'v' prefix for semantic version
+          SEMVER=${TAG#v}
+
+          # Validate semantic version format
+          if [[ ! $SEMVER =~ ^[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "Error: Tag $TAG does not match semantic version format (v0.1.0)"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
+          echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
+          echo "Extracted version information:"
+          echo "  Tag: $TAG"
+          echo "  SemVer: $SEMVER"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Branch: ${{ github.ref_name }}"
+
+      - name: Trigger Buildkite Build
+        uses: buildkite/trigger-pipeline-action@v2.3.0
+        with:
+          buildkite_api_access_token: ${{ secrets.BUILDKITE_API_TOKEN }}
+          pipeline: "hypr/viper"  # Update this to match your actual pipeline slug
+          commit: ${{ steps.version.outputs.commit }}
+          branch: ${{ steps.version.outputs.branch }}
+          message: "🚀 Release build for ${{ steps.version.outputs.tag }} triggered from GitHub Actions"
+          build_env_vars: |
+            {
+              "RELEASE_TAG": "${{ steps.version.outputs.tag }}",
+              "RELEASE_VERSION": "${{ steps.version.outputs.semver }}",
+              "TRIGGERED_FROM_GHA": "true",
+              "GITHUB_SHA": "${{ github.sha }}",
+              "GITHUB_REF": "${{ github.ref }}"
+            }
+          build_meta_data: |
+            {
+              "release_tag": "${{ steps.version.outputs.tag }}",
+              "semantic_version": "${{ steps.version.outputs.semver }}",
+              "github_trigger": "true",
+              "trigger_type": "${{ github.event_name }}"
+            }
+          ignore_pipeline_branch_filter: true
+          send_pull_request: false
+
+      - name: Output build information
+        run: |
+          echo "✅ Buildkite build triggered successfully!"
+          echo ""
+          echo "Build Details:"
+          echo "  Pipeline: hypr/viper"
+          echo "  Version: ${{ steps.version.outputs.semver }}"
+          echo "  Tag: ${{ steps.version.outputs.tag }}"
+          echo "  Commit: ${{ steps.version.outputs.commit }}"
+          echo ""
+          echo "The Buildkite build will use the following version scheme:"
+          echo "  Artifacts will be named: *-${{ steps.version.outputs.semver }}.{ext}"
+          echo "  Registry uploads will use proper semantic versioning"
+          echo ""
+          echo "Monitor the build progress at: https://buildkite.com/hypr/viper"
