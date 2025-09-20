@@ -189,23 +189,23 @@ steps:
 
       echo "--- Download kernel"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz || echo "Failed to download kernel"
-      if [ -f "vmlinuz" ]; then
-        mv vmlinuz dist/vmlinuz
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${SEMVER}.bin || echo "Failed to download kernel"
+      if [ -f "vmlinuz-$${SEMVER}.bin" ]; then
+        mv vmlinuz-$${SEMVER}.bin dist/vmlinuz
       fi
 
       echo "--- Download initramfs"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs.gz || echo "Failed to download initramfs"
-      if [ -f "viper-initramfs.gz" ]; then
-        mv viper-initramfs.gz dist/viper-initramfs.gz
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs-$${SEMVER}.gz || echo "Failed to download initramfs"
+      if [ -f "viper-initramfs-$${SEMVER}.gz" ]; then
+        mv viper-initramfs-$${SEMVER}.gz dist/viper-initramfs.gz
       fi
 
       echo "--- Download qcow2 image (optional)"
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless.qcow2 || true
-      if [ -f "viper-headless.qcow2" ]; then
-        mv viper-headless.qcow2 dist/viper-headless.qcow2
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${SEMVER}.qcow2 || true
+      if [ -f "viper-headless-$${SEMVER}.qcow2" ]; then
+        mv viper-headless-$${SEMVER}.qcow2 dist/viper-headless.qcow2
       fi
 
       echo "--- Verify Cloud Hypervisor setup"
@@ -326,8 +326,8 @@ steps:
         echo "Using fallback version: $${SEMVER}"
       fi
       if curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper; then
-        mv viper bin/viper
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin; then
+        mv viper-$${SEMVER}.bin bin/viper
         chmod +x bin/viper
         echo "✅ Viper CLI downloaded successfully"
       else
@@ -398,13 +398,13 @@ steps:
       fi
       echo "Downloading viper from registry..."
       if curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper; then
-        if [ -f "viper" ]; then
-          mv viper bin/viper
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin; then
+        if [ -f "viper-$${SEMVER}.bin" ]; then
+          mv viper-$${SEMVER}.bin bin/viper
           chmod +x bin/viper
           echo "✅ Viper CLI downloaded successfully"
         else
-          echo "❌ Download succeeded but file not found: viper"
+          echo "❌ Download succeeded but file not found: viper-$${SEMVER}.bin"
           ls -la
           exit 1
         fi
@@ -439,9 +439,9 @@ steps:
       echo "--- Download VM artifacts for CLI test"
       mkdir -p dist
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless.qcow2 || true
-      if [ -f "viper-headless.qcow2" ]; then
-        mv viper-headless.qcow2 dist/viper-headless.qcow2
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-headless-$${SEMVER}.qcow2 || true
+      if [ -f "viper-headless-$${SEMVER}.qcow2" ]; then
+        mv viper-headless-$${SEMVER}.qcow2 dist/viper-headless.qcow2
         echo "--- Validate CLI can parse VM image"
         ls -la dist/viper-headless.qcow2
         echo "VM image size: $$(du -h dist/viper-headless.qcow2 | cut -f1)"
@@ -520,8 +520,8 @@ steps:
 
       # Download binaries
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper
-      mv viper bin/viper
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin
+      mv viper-$${SEMVER}.bin bin/viper
       chmod +x bin/viper
 
       # Download VM artifacts
@@ -530,8 +530,8 @@ steps:
       mv vmlinuz-$${SEMVER}.bin dist/vmlinuz
 
       curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs.gz
-      mv viper-initramfs.gz dist/viper-initramfs.gz
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs-$${SEMVER}.gz
+      mv viper-initramfs-$${SEMVER}.gz dist/viper-initramfs.gz
 
       echo "--- Verify Cloud Hypervisor and bridge setup"
       cloud-hypervisor --version
