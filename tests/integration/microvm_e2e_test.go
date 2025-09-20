@@ -180,7 +180,7 @@ func createTestMicroVMJob(jobID, vmName string) *nomadapi.Job {
 							// Network configuration for service discovery
 							"network_interface": map[string]interface{}{
 								"bridge": map[string]interface{}{
-									"name": "br0",
+									"name": "viperbr0",
 									// Let nomad-driver-ch allocate IP dynamically
 								},
 							},
