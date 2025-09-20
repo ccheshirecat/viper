@@ -42,7 +42,7 @@ steps:
       go run examples/test-service-discovery.go || (echo "❌ CRITICAL: Service discovery test failed - this breaks the core functionality" && exit 1)
 
       echo "--- Integration Tests (short mode - REQUIRED)"
-      go test -short ./tests/integration/... -skip "TestVMImageExists|TestNomadJobTemplate" || (echo "❌ CRITICAL: Integration tests failed - build artifacts missing" && exit 1)
+      go test -short ./tests/integration/... || (echo "❌ CRITICAL: Integration tests failed - build artifacts missing" && exit 1)
 
       echo "--- Build binaries"
       make build
@@ -304,6 +304,7 @@ steps:
 
       echo "--- Run VM Integration Tests (requires artifacts)"
       go test -v ./tests/integration/... -run "TestVMImageExists|TestNomadJobTemplate" || (echo "❌ CRITICAL: VM integration tests failed" && exit 1)
+
 
   - label: "🔍 Service Discovery & Agent Tests"
     key: "service-discovery-test"

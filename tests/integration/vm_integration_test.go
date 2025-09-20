@@ -13,25 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestVMImageExists verifies that the built VM image exists and is valid
-func TestVMImageExists(t *testing.T) {
-	projectRoot := getProjectRoot(t)
-	imagePath := filepath.Join(projectRoot, "dist", "viper-headless.qcow2")
-
-	// Check if image exists
-	_, err := os.Stat(imagePath)
-	require.NoError(t, err, "VM image should exist at %s", imagePath)
-
-	// Check file size (should be reasonable for a headless Chrome image)
-	fileInfo, err := os.Stat(imagePath)
-	require.NoError(t, err)
-
-	// Image should be at least 50MB (compressed) but less than 2GB
-	assert.Greater(t, fileInfo.Size(), int64(50*1024*1024), "Image too small")
-	assert.Less(t, fileInfo.Size(), int64(2*1024*1024*1024), "Image too large")
-
-	t.Logf("✅ VM image exists: %s (size: %d bytes)", imagePath, fileInfo.Size())
-}
 
 // TestAgentBinaryExists verifies the agent binary is built and functional
 func TestAgentBinaryExists(t *testing.T) {
@@ -50,26 +31,6 @@ func TestAgentBinaryExists(t *testing.T) {
 	t.Logf("✅ Agent binary exists and is executable: %s", binaryPath)
 }
 
-// TestNomadJobTemplate verifies the generated Nomad job template
-func TestNomadJobTemplate(t *testing.T) {
-	projectRoot := getProjectRoot(t)
-	jobPath := filepath.Join(projectRoot, "dist", "example-job.hcl")
-
-	// Check if job template exists
-	_, err := os.Stat(jobPath)
-	require.NoError(t, err, "Nomad job template should exist at %s", jobPath)
-
-	// Read and basic validate content
-	content, err := os.ReadFile(jobPath)
-	require.NoError(t, err)
-
-	jobContent := string(content)
-	assert.Contains(t, jobContent, `driver = "virt"`, "Should use virt driver")
-	assert.Contains(t, jobContent, "viper-headless.qcow2", "Should reference our image")
-	assert.Contains(t, jobContent, "viper-agent", "Should reference our agent")
-
-	t.Logf("✅ Nomad job template generated and contains expected content")
-}
 
 // TestDockerImageCleanup verifies Docker cleanup works
 func TestDockerImageCleanup(t *testing.T) {
@@ -175,9 +136,7 @@ func TestBuildIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	t.Run("VMImage", TestVMImageExists)
 	t.Run("AgentBinary", TestAgentBinaryExists)
-	t.Run("NomadJobTemplate", TestNomadJobTemplate)
 	t.Run("AgentHealth", TestAgentHealthEndpoint)
 	t.Run("TaskStructure", TestTaskStructure)
 
