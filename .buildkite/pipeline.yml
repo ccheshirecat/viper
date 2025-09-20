@@ -258,6 +258,7 @@ steps:
               initramfs = "$$(pwd)/dist/viper-initramfs.gz"
               disk = "$$(pwd)/dist/viper-headless.qcow2"
               hostname = "viper-example"
+              primary_disk_size = "2G"
               cmdline = "console=ttyS0 init=/usr/local/bin/viper-agent"
 
               network_interface {
@@ -540,6 +541,8 @@ steps:
       ip link show $${BRIDGE} || (echo "Creating test bridge" && sudo ip link add $${BRIDGE} type bridge && sudo ip link set $${BRIDGE} up)
 
       echo "--- Start Nomad with nomad-driver-ch"
+      # Set bridge name for job template
+      export BRIDGE=br0
       # Assume Nomad is already configured with the driver on this agent
       nomad node status
 
