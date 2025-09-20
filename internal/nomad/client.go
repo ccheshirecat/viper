@@ -48,6 +48,124 @@ func (c *Client) SubmitJob(ctx context.Context, job *nomadapi.Job) (string, erro
 
 // Legacy CreateVM method removed - use job_generator.go instead
 
+// ResolveVMAgentURL resolves a VM name to its agent URL using Nomad service discovery
+func (c *Client) ResolveVMAgentURL(ctx context.Context, vmName string) (string, error) {
+	// Try multiple job ID patterns to handle different naming conventions
+	jobIDPatterns := []string{
+		fmt.Sprintf("viper-vm-%s", vmName),
+		vmName,
+		fmt.Sprintf("viper-%s", vmName),
+	}
+
+	for _, jobID := range jobIDPatterns {
+		url, err := c.resolveJobAgentURL(ctx, jobID)
+		if err == nil {
+			return url, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to resolve agent URL for VM %s: no running allocations found", vmName)
+}
+
+// resolveJobAgentURL resolves a specific job ID to its agent URL
+func (c *Client) resolveJobAgentURL(ctx context.Context, jobID string) (string, error) {
+	// Get job allocations
+	allocs, _, err := c.client.Jobs().Allocations(jobID, false, &nomadapi.QueryOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get allocations for job %s: %w", jobID, err)
+	}
+
+	// Find a running allocation
+	for _, alloc := range allocs {
+		if alloc.ClientStatus != "running" {
+			continue
+		}
+
+		// Get detailed allocation info to extract network information
+		allocDetail, _, err := c.client.Allocations().Info(alloc.ID, &nomadapi.QueryOptions{})
+		if err != nil {
+			continue // Try next allocation
+		}
+
+		// Extract IP address from allocation resources
+		if allocDetail.Resources != nil && allocDetail.Resources.Networks != nil {
+			for _, network := range allocDetail.Resources.Networks {
+				if network.IP != "" {
+					// Found a network with IP - construct agent URL
+					return fmt.Sprintf("http://%s:8080", network.IP), nil
+				}
+			}
+		}
+
+		// Fallback: Check allocation network status for dynamic IPs
+		if allocDetail.NetworkStatus != nil && allocDetail.NetworkStatus.Address != "" {
+			return fmt.Sprintf("http://%s:8080", allocDetail.NetworkStatus.Address), nil
+		}
+
+		// Additional fallback: Try to extract IP from task states
+		for _, taskState := range allocDetail.TaskStates {
+			// Skip tasks that aren't running
+			if taskState.State != "running" {
+				continue
+			}
+
+			// Check if there are any network-related events that contain IPs
+			for _, event := range taskState.Events {
+				if event.Type == "Driver" && strings.Contains(event.DisplayMessage, "IP:") {
+					// Extract IP from driver message (format varies by driver)
+					if ip := extractIPFromMessage(event.DisplayMessage); ip != "" {
+						return fmt.Sprintf("http://%s:8080", ip), nil
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no running allocations found for job %s", jobID)
+}
+
+// extractIPFromMessage attempts to extract an IP address from a driver message
+func extractIPFromMessage(message string) string {
+	// Simple regex-like extraction for common IP patterns in driver messages
+	// This handles various formats that nomad-driver-ch might use
+	parts := strings.Fields(message)
+	for i, part := range parts {
+		if part == "IP:" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+		if strings.HasPrefix(part, "ip=") {
+			return strings.TrimPrefix(part, "ip=")
+		}
+		if strings.Contains(part, "allocated_ip:") {
+			return strings.Split(part, ":")[1]
+		}
+		// Check if this looks like an IP address
+		if isValidIPAddress(part) {
+			return part
+		}
+	}
+	return ""
+}
+
+// isValidIPAddress performs basic IP address validation
+func isValidIPAddress(ip string) bool {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		if len(part) == 0 || len(part) > 3 {
+			return false
+		}
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (c *Client) ListVMs(ctx context.Context) ([]types.VMStatus, error) {
 	jobs, _, err := c.client.Jobs().List(&nomadapi.QueryOptions{})
 	if err != nil {
@@ -56,12 +174,11 @@ func (c *Client) ListVMs(ctx context.Context) ([]types.VMStatus, error) {
 
 	var vms []types.VMStatus
 	for _, job := range jobs {
-		// Use the new flexible job identification
-		if !isViperJob(job.ID) {
+		if !strings.HasPrefix(job.ID, "viper-vm-") {
 			continue
 		}
 
-		vmName := extractVMNameFromJobID(job.ID)
+		vmName := strings.TrimPrefix(job.ID, "viper-vm-")
 
 		vm := types.VMStatus{
 			Name:     vmName,
@@ -72,14 +189,13 @@ func (c *Client) ListVMs(ctx context.Context) ([]types.VMStatus, error) {
 		}
 
 		if job.Status == "running" {
-			// Use service discovery to resolve actual agent URL
-			if agentURL, err := c.resolveAgentURL(ctx, job.ID); err == nil {
+			// Use service discovery to resolve the actual agent URL
+			if agentURL, err := c.ResolveVMAgentURL(ctx, vmName); err == nil {
 				vm.AgentURL = agentURL
 				vm.Health = "healthy"
 			} else {
-				// Log the error but don't fail the entire listing
+				vm.AgentURL = fmt.Sprintf("http://%s:8080", vmName) // Fallback
 				vm.Health = "unreachable"
-				vm.AgentURL = "" // Clear any previous URL
 			}
 		}
 
@@ -90,25 +206,9 @@ func (c *Client) ListVMs(ctx context.Context) ([]types.VMStatus, error) {
 }
 
 func (c *Client) DestroyVM(ctx context.Context, name string) error {
-	// Try to find the actual job ID for this VM
-	jobs, _, err := c.client.Jobs().List(&nomadapi.QueryOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to list jobs: %w", err)
-	}
+	jobID := fmt.Sprintf("viper-vm-%s", name)
 
-	var jobID string
-	for _, job := range jobs {
-		if isViperJob(job.ID) && extractVMNameFromJobID(job.ID) == name {
-			jobID = job.ID
-			break
-		}
-	}
-
-	if jobID == "" {
-		return fmt.Errorf("VM job not found: %s", name)
-	}
-
-	_, _, err = c.client.Jobs().Deregister(jobID, false, &nomadapi.WriteOptions{})
+	_, _, err := c.client.Jobs().Deregister(jobID, false, &nomadapi.WriteOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to deregister VM job: %w", err)
 	}
@@ -160,98 +260,4 @@ func intPtr(i int) *int {
 
 func uintPtr(u uint64) *uint64 {
 	return &u
-}
-
-// Service discovery methods for VM IP resolution
-
-// ResolveVMAgentURL resolves a VM name to its actual agent URL via Nomad service discovery
-func (c *Client) ResolveVMAgentURL(ctx context.Context, vmName string) (string, error) {
-	// Try multiple job ID patterns since we may have different naming conventions
-	possibleJobIDs := []string{
-		vmName,           // Direct name
-		"viper-" + vmName, // Prefixed name
-	}
-
-	for _, jobID := range possibleJobIDs {
-		if url, err := c.resolveAgentURL(ctx, jobID); err == nil {
-			return url, nil
-		}
-	}
-
-	return "", fmt.Errorf("no agent URL found for VM: %s", vmName)
-}
-
-// resolveAgentURL resolves the actual agent URL for a job via allocation inspection
-func (c *Client) resolveAgentURL(ctx context.Context, jobID string) (string, error) {
-	// Use allocation-based IP resolution as primary method
-	return c.resolveAgentURLViaAllocations(ctx, jobID)
-}
-
-// resolveAgentURLViaAllocations attempts to resolve via allocation info
-func (c *Client) resolveAgentURLViaAllocations(ctx context.Context, jobID string) (string, error) {
-	// Get allocations for the job
-	allocs, _, err := c.client.Jobs().Allocations(jobID, false, &nomadapi.QueryOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get allocations for job %s: %w", jobID, err)
-	}
-
-	// Find running allocation
-	for _, alloc := range allocs {
-		if alloc.ClientStatus == "running" {
-			// Get detailed allocation info
-			allocInfo, _, err := c.client.Allocations().Info(alloc.ID, &nomadapi.QueryOptions{})
-			if err != nil {
-				continue
-			}
-
-			// Extract network information
-			if url := c.extractURLFromAllocation(allocInfo); url != "" {
-				return url, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("no running allocation found for job: %s", jobID)
-}
-
-// extractURLFromAllocation extracts the agent URL from allocation information
-func (c *Client) extractURLFromAllocation(alloc *nomadapi.Allocation) string {
-	// Check network information in the allocation
-	if alloc.Resources != nil && len(alloc.Resources.Networks) > 0 {
-		network := alloc.Resources.Networks[0]
-
-		// Look for the agent port mapping
-		for _, port := range network.DynamicPorts {
-			if port.Label == "agent" {
-				// Construct URL using network IP and mapped port
-				if network.IP != "" {
-					return fmt.Sprintf("http://%s:%d", network.IP, port.Value)
-				}
-			}
-		}
-
-		// Fallback: use network IP with default port
-		if network.IP != "" {
-			return fmt.Sprintf("http://%s:8080", network.IP)
-		}
-	}
-
-	return ""
-}
-
-// Helper functions for job identification
-
-// isViperJob checks if a job ID belongs to a Viper-managed VM
-func isViperJob(jobID string) bool {
-	// Current pattern is direct job names, but we can be more flexible
-	return jobID != "" && !strings.HasPrefix(jobID, "system-") && !strings.HasPrefix(jobID, "nomad-")
-}
-
-// extractVMNameFromJobID extracts the VM name from a job ID
-func extractVMNameFromJobID(jobID string) string {
-	// Handle different naming patterns
-	if strings.HasPrefix(jobID, "viper-") {
-		return strings.TrimPrefix(jobID, "viper-")
-	}
-	return jobID
 }

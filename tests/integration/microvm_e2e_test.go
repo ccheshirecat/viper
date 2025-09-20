@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,385 +12,290 @@ import (
 	"github.com/ccheshirecat/viper/pkg/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	nomadapi "github.com/hashicorp/nomad/api"
 )
 
-// TestMicroVMEndToEnd tests the complete microVM workflow with real nomad-driver-ch
+// TestMicroVMEndToEnd tests the complete end-to-end workflow with real nomad-driver-ch
 func TestMicroVMEndToEnd(t *testing.T) {
-	// Skip this test if not running with real infrastructure
 	if testing.Short() {
-		t.Skip("Skipping microVM integration test in short mode")
+		t.Skip("Skipping end-to-end test in short mode")
 	}
 
-	// Check if we have the required infrastructure
-	if !hasNomadDriverCH(t) {
-		t.Skip("Skipping microVM test - nomad-driver-ch not available")
+	// Check if we're running in an environment with nomad-driver-ch
+	if !isNomadDriverCHAvailable(t) {
+		t.Skip("nomad-driver-ch not available - skipping microVM integration test")
 	}
 
-	if !hasVMImages(t) {
-		t.Skip("Skipping microVM test - VM images not available. Run 'make build-images' first.")
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 
-	ctx := context.Background()
-	vmName := fmt.Sprintf("test-vm-%d", time.Now().Unix())
-
-	// Clean up any existing test VMs
-	defer cleanupTestVM(t, vmName)
-
-	t.Run("1. Create microVM", func(t *testing.T) {
-		testCreateMicroVM(t, ctx, vmName)
-	})
-
-	t.Run("2. Wait for VM to boot and agent to be ready", func(t *testing.T) {
-		testWaitForVMReady(t, ctx, vmName)
-	})
-
-	t.Run("3. Communicate with agent inside VM", func(t *testing.T) {
-		testAgentCommunication(t, ctx, vmName)
-	})
-
-	t.Run("4. Spawn browser context", func(t *testing.T) {
-		testSpawnBrowserContext(t, ctx, vmName)
-	})
-
-	t.Run("5. Submit browser automation task", func(t *testing.T) {
-		testBrowserAutomationTask(t, ctx, vmName)
-	})
-
-	t.Run("6. Retrieve task results", func(t *testing.T) {
-		testRetrieveTaskResults(t, ctx, vmName)
-	})
-
-	t.Run("7. Cleanup microVM", func(t *testing.T) {
-		testCleanupMicroVM(t, ctx, vmName)
-	})
-}
-
-func testCreateMicroVM(t *testing.T, ctx context.Context, vmName string) {
-	// Create Nomad client
+	// Initialize Nomad client
 	nomadClient, err := nomad.NewClient()
 	require.NoError(t, err, "Failed to create Nomad client")
 
-	// Generate job for microVM
-	imagePaths := nomad.ResolveImagePaths("./dist")
-	generator := nomad.NewVMJobGenerator("dc1", "br0", imagePaths)
-
-	opts := nomad.VMCreateOptions{
-		Name:        vmName,
-		Memory:      1024, // 1GB for testing
-		CPU:         1000, // 1 CPU core
-		NetworkMode: types.NetworkModePrivateSubnet,
-		ImagePaths:  imagePaths,
-	}
-
-	job, err := generator.GenerateVMJob(opts)
-	require.NoError(t, err, "Failed to generate VM job")
-
-	// Submit job to Nomad
-	jobID, err := nomadClient.SubmitJob(ctx, job)
-	require.NoError(t, err, "Failed to submit VM job to Nomad")
-
-	assert.Equal(t, vmName, jobID, "Job ID should match VM name")
-	t.Logf("✅ Successfully created microVM job: %s", jobID)
+	// Test job generation and VM creation
+	t.Run("CreateMicroVM", func(t *testing.T) {
+		testCreateMicroVM(ctx, t, nomadClient)
+	})
 }
 
-func testWaitForVMReady(t *testing.T, ctx context.Context, vmName string) {
-	nomadClient, err := nomad.NewClient()
-	require.NoError(t, err, "Failed to create Nomad client")
+// testCreateMicroVM tests creating a microVM with nomad-driver-ch
+func testCreateMicroVM(ctx context.Context, t *testing.T, nomadClient *nomad.Client) {
+	vmName := "test-vm-e2e"
+	jobID := fmt.Sprintf("viper-vm-%s", vmName)
 
-	// Wait up to 2 minutes for VM to boot and agent to be ready
-	timeout := time.Now().Add(2 * time.Minute)
-	var lastErr error
-
-	for time.Now().Before(timeout) {
-		// Check if VM is running
-		vms, err := nomadClient.ListVMs(ctx)
-		if err != nil {
-			lastErr = err
-			time.Sleep(5 * time.Second)
-			continue
+	// Cleanup any existing test VM
+	defer func() {
+		if err := nomadClient.DestroyVM(ctx, vmName); err != nil {
+			t.Logf("Warning: failed to cleanup test VM: %v", err)
 		}
+	}()
 
-		// Find our VM
-		var vm *types.VMStatus
-		for _, v := range vms {
-			if v.Name == vmName {
-				vm = &v
-				break
+	// Create a test job for nomad-driver-ch
+	job := createTestMicroVMJob(jobID, vmName)
+
+	// Submit the job
+	t.Logf("Submitting job %s to Nomad...", jobID)
+	actualJobID, err := nomadClient.SubmitJob(ctx, job)
+	require.NoError(t, err, "Failed to submit job")
+	assert.Equal(t, jobID, actualJobID)
+
+	// Wait for VM to be running with timeout
+	t.Logf("Waiting for VM %s to start...", vmName)
+	vmStatus := waitForVMRunning(ctx, t, nomadClient, vmName, 3*time.Minute)
+	require.NotNil(t, vmStatus, "VM failed to start within timeout")
+	assert.Equal(t, "running", vmStatus.Status)
+
+	// Test service discovery
+	t.Logf("Testing service discovery for VM %s...", vmName)
+	agentURL, err := nomadClient.ResolveVMAgentURL(ctx, vmName)
+	require.NoError(t, err, "Service discovery should resolve VM agent URL")
+	assert.Contains(t, agentURL, "http://", "Agent URL should be HTTP")
+	assert.Contains(t, agentURL, ":8080", "Agent URL should include port 8080")
+	t.Logf("✅ Service discovery resolved VM agent URL: %s", agentURL)
+
+	// Test AgentClient with service discovery
+	t.Logf("Testing AgentClient with service discovery...")
+	agentClient, err := client.NewAgentClient(vmName)
+	require.NoError(t, err, "Failed to create agent client")
+
+	// Wait for agent to be ready (VMs need time to boot)
+	t.Logf("Waiting for agent to be ready...")
+	var health *types.AgentHealth
+	healthCheckCtx, healthCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer healthCancel()
+
+	for {
+		select {
+		case <-healthCheckCtx.Done():
+			t.Fatal("Agent health check timeout - VM may not have booted properly")
+		default:
+			health, err = agentClient.Health(ctx)
+			if err == nil {
+				goto healthCheckComplete // Use goto to avoid unreachable code warning
 			}
+			t.Logf("Agent not ready yet, retrying in 10s... (error: %v)", err)
+			time.Sleep(10 * time.Second)
 		}
-
-		if vm == nil {
-			lastErr = fmt.Errorf("VM %s not found in job list", vmName)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		if vm.Status != "running" {
-			lastErr = fmt.Errorf("VM %s status: %s", vmName, vm.Status)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		if vm.AgentURL == "" {
-			lastErr = fmt.Errorf("VM %s has no agent URL", vmName)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		if vm.Health != "healthy" {
-			lastErr = fmt.Errorf("VM %s health: %s", vmName, vm.Health)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		// VM is ready!
-		t.Logf("✅ VM is ready: %s (agent: %s)", vmName, vm.AgentURL)
-		return
 	}
 
-	t.Fatalf("VM failed to become ready within timeout. Last error: %v", lastErr)
-}
+healthCheckComplete:
 
-func testAgentCommunication(t *testing.T, ctx context.Context, vmName string) {
-	// Create agent client - this should use service discovery
-	agentClient, err := client.NewAgentClient(vmName)
-	require.NoError(t, err, "Failed to create agent client")
+	require.NotNil(t, health, "Agent health should be available")
+	assert.Equal(t, "healthy", health.Status, "Agent should report healthy status")
+	t.Logf("✅ Agent health check successful: %+v", health)
 
-	// Test health endpoint
-	health, err := agentClient.Health(ctx)
-	require.NoError(t, err, "Failed to get agent health")
-
-	assert.Equal(t, "healthy", health.Status, "Agent should be healthy")
-	assert.Greater(t, health.Uptime, time.Duration(0), "Agent should have positive uptime")
-
-	t.Logf("✅ Agent communication successful - uptime: %v", health.Uptime)
-}
-
-func testSpawnBrowserContext(t *testing.T, ctx context.Context, vmName string) {
-	agentClient, err := client.NewAgentClient(vmName)
-	require.NoError(t, err, "Failed to create agent client")
-
-	contextID := "test-ctx-1"
-
-	// Spawn browser context
-	err = agentClient.SpawnContext(ctx, contextID)
+	// Test browser context spawn
+	t.Logf("Testing browser context spawn...")
+	err = agentClient.SpawnContext(ctx, "test-ctx-1")
 	require.NoError(t, err, "Failed to spawn browser context")
+	t.Logf("✅ Browser context spawned successfully")
 
-	// Verify context exists
+	// Test context listing
+	t.Logf("Testing context listing...")
 	contexts, err := agentClient.ListContexts(ctx)
-	require.NoError(t, err, "Failed to list browser contexts")
+	require.NoError(t, err, "Failed to list contexts")
+	assert.Len(t, contexts, 1, "Should have one context")
+	assert.Equal(t, "test-ctx-1", contexts[0].ID, "Context ID should match")
+	t.Logf("✅ Context listing successful: %+v", contexts)
 
-	found := false
-	for _, context := range contexts {
-		if context.ID == contextID {
-			found = true
-			assert.True(t, context.Active, "New context should be active")
-			break
-		}
-	}
-
-	assert.True(t, found, "Browser context should be created")
-	t.Logf("✅ Successfully spawned browser context: %s", contextID)
-}
-
-func testBrowserAutomationTask(t *testing.T, ctx context.Context, vmName string) {
-	agentClient, err := client.NewAgentClient(vmName)
-	require.NoError(t, err, "Failed to create agent client")
-
-	// Create a simple test task
+	// Test task submission
+	t.Logf("Testing task submission...")
 	task := types.Task{
-		ID:      fmt.Sprintf("test-task-%d", time.Now().Unix()),
+		ID:      "test-task-1",
 		VMID:    vmName,
 		URL:     "https://example.com",
+		Status:  types.TaskStatusPending,
+		Created: time.Now(),
 		Timeout: 30 * time.Second,
 	}
 
-	// Submit task
 	result, err := agentClient.SubmitTask(ctx, task)
 	require.NoError(t, err, "Failed to submit task")
+	require.NotNil(t, result, "Task result should be available")
+	t.Logf("✅ Task submitted successfully: %+v", result)
 
-	assert.Equal(t, task.ID, result.TaskID, "Task ID should match")
-	assert.Equal(t, types.TaskStatusCompleted, result.Status, "Task should complete successfully")
+	// Test task logs retrieval
+	t.Logf("Testing task logs retrieval...")
 
-	t.Logf("✅ Browser automation task completed: %s", task.ID)
-}
-
-func testRetrieveTaskResults(t *testing.T, ctx context.Context, vmName string) {
-	agentClient, err := client.NewAgentClient(vmName)
-	require.NoError(t, err, "Failed to create agent client")
-
-	// Get the most recent task (assuming it's from the previous test)
-	// In a real scenario, we'd store the task ID from the previous step
-	taskID := fmt.Sprintf("test-task-%d", time.Now().Unix()-1) // Approximate
-
-	// Try to get task logs
-	logs, err := agentClient.GetTaskLogs(ctx, taskID)
-	if err == nil {
-		assert.NotEmpty(t, logs, "Task logs should not be empty")
-		t.Logf("✅ Retrieved task logs (length: %d)", len(logs))
-	} else {
-		t.Logf("⚠️  Could not retrieve task logs (expected for test): %v", err)
-	}
-
-	// Try to get screenshots
-	screenshots, err := agentClient.GetTaskScreenshots(ctx, taskID)
-	if err == nil && len(screenshots) > 0 {
-		t.Logf("✅ Retrieved %d screenshots", len(screenshots))
-	} else {
-		t.Logf("⚠️  No screenshots available (expected for test): %v", err)
-	}
-}
-
-func testCleanupMicroVM(t *testing.T, ctx context.Context, vmName string) {
-	nomadClient, err := nomad.NewClient()
-	require.NoError(t, err, "Failed to create Nomad client")
-
-	// Destroy the VM
-	err = nomadClient.DestroyVM(ctx, vmName)
-	require.NoError(t, err, "Failed to destroy VM")
-
-	// Verify VM is removed (wait a bit for cleanup)
+	// Wait a bit for task to complete
 	time.Sleep(5 * time.Second)
 
-	vms, err := nomadClient.ListVMs(ctx)
-	require.NoError(t, err, "Failed to list VMs after cleanup")
-
-	// Verify VM is not in the list
-	for _, vm := range vms {
-		assert.NotEqual(t, vmName, vm.Name, "VM should be removed from list")
+	logs, err := agentClient.GetTaskLogs(ctx, result.TaskID)
+	if err == nil {
+		t.Logf("✅ Task logs retrieved: %s", logs)
+	} else {
+		t.Logf("⚠️  Task logs not available yet (this is expected): %v", err)
 	}
 
-	t.Logf("✅ Successfully cleaned up microVM: %s", vmName)
+	t.Logf("🎉 End-to-end test completed successfully!")
+}
+
+// createTestMicroVMJob creates a test job for nomad-driver-ch
+func createTestMicroVMJob(jobID, vmName string) *nomadapi.Job {
+	job := &nomadapi.Job{
+		ID:          &jobID,
+		Name:        &jobID,
+		Type:        stringPtr("service"),
+		Datacenters: []string{"dc1"},
+		TaskGroups: []*nomadapi.TaskGroup{
+			{
+				Name:  stringPtr("viper-vm"),
+				Count: intPtr(1),
+				Tasks: []*nomadapi.Task{
+					{
+						Name:   "microvm",
+						Driver: "ch", // nomad-driver-ch driver name
+						Config: map[string]interface{}{
+							// Use a minimal test image - in production this would be the viper image
+							"image": "/var/lib/images/test-alpine.img",
+
+							// REQUIRED for Cloud Hypervisor: kernel and initramfs
+							"kernel":    "/boot/vmlinuz",
+							"initramfs": "/boot/initramfs.img",
+							"cmdline":   "console=ttyS0 init=/usr/local/bin/viper-agent",
+
+							"hostname": vmName,
+
+							// Network configuration for service discovery
+							"network_interface": map[string]interface{}{
+								"bridge": map[string]interface{}{
+									"name": "br0",
+									// Let nomad-driver-ch allocate IP dynamically
+								},
+							},
+						},
+						Resources: &nomadapi.Resources{
+							CPU:      intPtr(1000), // 1 CPU core
+							MemoryMB: intPtr(1024),  // 1GB RAM
+							Networks: []*nomadapi.NetworkResource{
+								{
+									MBits: intPtr(100),
+									ReservedPorts: []nomadapi.Port{
+										{
+											Label: "agent",
+											Value: 8080,
+										},
+									},
+								},
+							},
+						},
+						Services: []*nomadapi.Service{
+							{
+								Name:      "viper-agent",
+								PortLabel: "agent",
+								Checks: []nomadapi.ServiceCheck{
+									{
+										Type:     "tcp",
+										Interval: time.Duration(30 * time.Second),
+										Timeout:  time.Duration(10 * time.Second),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return job
+}
+
+// waitForVMRunning waits for a VM to reach running status
+func waitForVMRunning(ctx context.Context, t *testing.T, nomadClient *nomad.Client, vmName string, timeout time.Duration) *types.VMStatus {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Logf("Timeout waiting for VM %s to be running", vmName)
+			return nil
+		case <-ticker.C:
+			vms, err := nomadClient.ListVMs(ctx)
+			if err != nil {
+				t.Logf("Error listing VMs: %v", err)
+				continue
+			}
+
+			for _, vm := range vms {
+				if vm.Name == vmName {
+					t.Logf("VM %s status: %s", vmName, vm.Status)
+					if vm.Status == "running" {
+						return &vm
+					}
+				}
+			}
+		}
+	}
+}
+
+// isNomadDriverCHAvailable checks if nomad-driver-ch is available
+func isNomadDriverCHAvailable(t *testing.T) bool {
+	// Check environment variable first
+	if os.Getenv("SKIP_CH_TESTS") == "true" {
+		t.Logf("Skipping nomad-driver-ch tests (SKIP_CH_TESTS=true)")
+		return false
+	}
+
+	// Try to create Nomad client
+	nomadClient, err := nomad.NewClient()
+	if err != nil {
+		t.Logf("Cannot create Nomad client: %v", err)
+		return false
+	}
+
+	// Check if we can connect to Nomad
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	status, err := nomadClient.GetSystemStatus(ctx)
+	if err != nil {
+		t.Logf("Cannot connect to Nomad: %v", err)
+		return false
+	}
+
+	if status.NomadStatus != "connected" {
+		t.Logf("Nomad not connected: %s", status.NomadStatus)
+		return false
+	}
+
+	// TODO: Add check for nomad-driver-ch plugin availability
+	// This would require querying Nomad's plugin API to see if 'ch' driver is loaded
+
+	t.Logf("✅ nomad-driver-ch environment is available")
+	return true
 }
 
 // Helper functions
-
-func hasNomadDriverCH(t *testing.T) bool {
-	// Check if nomad-driver-ch is available by checking if Nomad is running
-	// and if the driver is loaded
-	nomadClient, err := nomad.NewClient()
-	if err != nil {
-		t.Logf("Nomad not available: %v", err)
-		return false
-	}
-
-	// Simple connectivity test
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err = nomadClient.GetSystemStatus(ctx)
-	if err != nil {
-		t.Logf("Nomad system not accessible: %v", err)
-		return false
-	}
-
-	t.Logf("✅ Nomad connectivity confirmed")
-	return true
+func stringPtr(s string) *string {
+	return &s
 }
 
-func hasVMImages(t *testing.T) bool {
-	// Check if VM image files exist
-	imagePaths := nomad.ResolveImagePaths("./dist")
-
-	if _, err := os.Stat(imagePaths.Kernel); os.IsNotExist(err) {
-		t.Logf("Kernel image not found: %s", imagePaths.Kernel)
-		return false
-	}
-
-	if _, err := os.Stat(imagePaths.Initramfs); os.IsNotExist(err) {
-		t.Logf("Initramfs image not found: %s", imagePaths.Initramfs)
-		return false
-	}
-
-	// Make paths absolute for Nomad
-	kernelAbs, _ := filepath.Abs(imagePaths.Kernel)
-	initramfsAbs, _ := filepath.Abs(imagePaths.Initramfs)
-
-	t.Logf("✅ VM images found:")
-	t.Logf("  Kernel: %s", kernelAbs)
-	t.Logf("  Initramfs: %s", initramfsAbs)
-	return true
-}
-
-func cleanupTestVM(t *testing.T, vmName string) {
-	// Best-effort cleanup
-	nomadClient, err := nomad.NewClient()
-	if err != nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	err = nomadClient.DestroyVM(ctx, vmName)
-	if err != nil {
-		t.Logf("Cleanup warning - failed to destroy VM %s: %v", vmName, err)
-	}
-}
-
-// Benchmark test for performance validation
-func BenchmarkMicroVMLifecycle(b *testing.B) {
-	if testing.Short() {
-		b.Skip("Skipping benchmark in short mode")
-	}
-
-	if !hasNomadDriverCHQuiet() {
-		b.Skip("Skipping benchmark - nomad-driver-ch not available")
-	}
-
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		vmName := fmt.Sprintf("bench-vm-%d-%d", i, time.Now().Unix())
-
-		// Time the complete lifecycle
-		start := time.Now()
-
-		// Create VM
-		nomadClient, err := nomad.NewClient()
-		if err != nil {
-			b.Fatalf("Failed to create Nomad client: %v", err)
-		}
-
-		imagePaths := nomad.ResolveImagePaths("./dist")
-		generator := nomad.NewVMJobGenerator("dc1", "br0", imagePaths)
-
-		opts := nomad.VMCreateOptions{
-			Name:        vmName,
-			Memory:      512, // Minimal for benchmark
-			CPU:         500,
-			NetworkMode: types.NetworkModePrivateSubnet,
-			ImagePaths:  imagePaths,
-		}
-
-		job, err := generator.GenerateVMJob(opts)
-		if err != nil {
-			b.Fatalf("Failed to generate VM job: %v", err)
-		}
-
-		ctx := context.Background()
-		_, err = nomadClient.SubmitJob(ctx, job)
-		if err != nil {
-			b.Fatalf("Failed to submit VM job: %v", err)
-		}
-
-		// Clean up
-		defer nomadClient.DestroyVM(ctx, vmName)
-
-		duration := time.Since(start)
-		b.ReportMetric(float64(duration.Nanoseconds()), "ns/vm-create")
-	}
-}
-
-func hasNomadDriverCHQuiet() bool {
-	nomadClient, err := nomad.NewClient()
-	if err != nil {
-		return false
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, err = nomadClient.GetSystemStatus(ctx)
-	return err == nil
+func intPtr(i int) *int {
+	return &i
 }

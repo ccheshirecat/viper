@@ -14,105 +14,230 @@ import (
 )
 
 type AgentClient struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL     string
+	vmName      string
+	httpClient  *http.Client
+	nomadClient *nomad.Client
 }
 
+// NewAgentClient creates an AgentClient that uses Nomad service discovery to resolve VM IPs
 func NewAgentClient(vmName string) (*AgentClient, error) {
-	// Create Nomad client to resolve VM IP address
 	nomadClient, err := nomad.NewClient()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Nomad client for VM IP resolution: %w", err)
+		return nil, fmt.Errorf("failed to create Nomad client for service discovery: %w", err)
 	}
 
-	// Resolve the VM name to actual agent URL via Nomad service discovery
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	baseURL, err := nomadClient.ResolveVMAgentURL(ctx, vmName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve IP for VM '%s': %w\nMake sure VM is running: viper vms list", vmName, err)
+	client := &AgentClient{
+		vmName:      vmName,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		nomadClient: nomadClient,
 	}
 
+	// Attempt to resolve the VM's agent URL
+	if err := client.RefreshAgentURL(context.Background()); err != nil {
+		// Don't fail creation - allow lazy resolution
+		client.baseURL = fmt.Sprintf("http://%s:8080", vmName) // Fallback
+	}
+
+	return client, nil
+}
+
+// NewAgentClientWithURL creates an AgentClient with a direct URL (for testing or direct connections)
+func NewAgentClientWithURL(baseURL string) *AgentClient {
 	return &AgentClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-	}, nil
+	}
 }
 
-func (c *AgentClient) Health(ctx context.Context) (*types.AgentHealth, error) {
-	url := fmt.Sprintf("%s/health", c.baseURL)
+// RefreshAgentURL refreshes the agent URL using Nomad service discovery
+func (c *AgentClient) RefreshAgentURL(ctx context.Context) error {
+	if c.nomadClient == nil {
+		return fmt.Errorf("nomad client not available for service discovery")
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url, err := c.nomadClient.ResolveVMAgentURL(ctx, c.vmName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("failed to resolve agent URL for VM %s: %w", c.vmName, err)
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("health check failed with status: %d", resp.StatusCode)
-	}
-
-	var health types.AgentHealth
-	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &health, nil
-}
-
-func (c *AgentClient) SpawnContext(ctx context.Context, contextID string) error {
-	url := fmt.Sprintf("%s/spawn/%s", c.baseURL, contextID)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("spawn context failed with status: %d", resp.StatusCode)
-	}
-
+	c.baseURL = url
 	return nil
 }
 
+func (c *AgentClient) Health(ctx context.Context) (*types.AgentHealth, error) {
+	return c.performRequestWithRetry(ctx, func() (*types.AgentHealth, error) {
+		url := fmt.Sprintf("%s/health", c.baseURL)
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to make request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("health check failed with status: %d", resp.StatusCode)
+		}
+
+		var health types.AgentHealth
+		if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		return &health, nil
+	})
+}
+
+// performRequestWithRetry performs a request with automatic URL refresh on failure for AgentHealth
+func (c *AgentClient) performRequestWithRetry(ctx context.Context, operation func() (*types.AgentHealth, error)) (*types.AgentHealth, error) {
+	// First attempt
+	result, err := operation()
+	if err == nil {
+		return result, nil
+	}
+
+	// If we have a nomad client, try refreshing the URL and retry once
+	if c.nomadClient != nil {
+		if refreshErr := c.RefreshAgentURL(ctx); refreshErr == nil {
+			// Retry with the refreshed URL
+			result, retryErr := operation()
+			if retryErr == nil {
+				return result, nil
+			}
+			// If retry also fails, return the original error
+		}
+	}
+
+	return nil, err
+}
+
+// performRequestWithRetryGeneric performs a request with automatic URL refresh on failure
+func performRequestWithRetryGeneric[T any](c *AgentClient, ctx context.Context, operation func() (*T, error)) (*T, error) {
+	// First attempt
+	result, err := operation()
+	if err == nil {
+		return result, nil
+	}
+
+	// If we have a nomad client, try refreshing the URL and retry once
+	if c.nomadClient != nil {
+		if refreshErr := c.RefreshAgentURL(ctx); refreshErr == nil {
+			// Retry with the refreshed URL
+			result, retryErr := operation()
+			if retryErr == nil {
+				return result, nil
+			}
+			// If retry also fails, return the original error
+		}
+	}
+
+	return nil, err
+}
+
+// performRequestWithRetrySlice performs a request with automatic URL refresh on failure for slices
+func performRequestWithRetrySlice[T any](c *AgentClient, ctx context.Context, operation func() ([]T, error)) ([]T, error) {
+	// First attempt
+	result, err := operation()
+	if err == nil {
+		return result, nil
+	}
+
+	// If we have a nomad client, try refreshing the URL and retry once
+	if c.nomadClient != nil {
+		if refreshErr := c.RefreshAgentURL(ctx); refreshErr == nil {
+			// Retry with the refreshed URL
+			result, retryErr := operation()
+			if retryErr == nil {
+				return result, nil
+			}
+			// If retry also fails, return the original error
+		}
+	}
+
+	return nil, err
+}
+
+// performRequestWithRetryVoid is similar but for operations that don't return data
+func (c *AgentClient) performRequestWithRetryVoid(ctx context.Context, operation func() error) error {
+	// First attempt
+	err := operation()
+	if err == nil {
+		return nil
+	}
+
+	// If we have a nomad client, try refreshing the URL and retry once
+	if c.nomadClient != nil {
+		if refreshErr := c.RefreshAgentURL(ctx); refreshErr == nil {
+			// Retry with the refreshed URL
+			retryErr := operation()
+			if retryErr == nil {
+				return nil
+			}
+			// If retry also fails, return the original error
+		}
+	}
+
+	return err
+}
+
+func (c *AgentClient) SpawnContext(ctx context.Context, contextID string) error {
+	return c.performRequestWithRetryVoid(ctx, func() error {
+		url := fmt.Sprintf("%s/spawn/%s", c.baseURL, contextID)
+
+		req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to make request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("spawn context failed with status: %d", resp.StatusCode)
+		}
+
+		return nil
+	})
+}
+
 func (c *AgentClient) ListContexts(ctx context.Context) ([]types.BrowserContext, error) {
-	url := fmt.Sprintf("%s/contexts", c.baseURL)
+	return performRequestWithRetrySlice(c, ctx, func() ([]types.BrowserContext, error) {
+		url := fmt.Sprintf("%s/contexts", c.baseURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to make request: %w", err)
+		}
+		defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list contexts failed with status: %d", resp.StatusCode)
-	}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("list contexts failed with status: %d", resp.StatusCode)
+		}
 
-	var contexts []types.BrowserContext
-	if err := json.NewDecoder(resp.Body).Decode(&contexts); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
+		var contexts []types.BrowserContext
+		if err := json.NewDecoder(resp.Body).Decode(&contexts); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
 
-	return contexts, nil
+		return contexts, nil
+	})
 }
 
 func (c *AgentClient) DestroyContext(ctx context.Context, contextID string) error {

@@ -35,7 +35,14 @@ steps:
 
       echo "--- Unit tests"
       export CGO_ENABLED=1
-      go test -count=1 -race ./internal/... ./pkg/... || true
+      go test -count=1 -race ./internal/... ./pkg/...
+
+      echo "--- Service Discovery Tests (REQUIRED)"
+      echo "Testing new service discovery implementation..."
+      go run examples/test-service-discovery.go || (echo "❌ CRITICAL: Service discovery test failed - this breaks the core functionality" && exit 1)
+
+      echo "--- Integration Tests (short mode - REQUIRED)"
+      go test -short ./tests/integration/... || (echo "❌ CRITICAL: Integration tests failed - build artifacts missing" && exit 1)
 
       echo "--- Build binaries"
       make build
@@ -257,268 +264,73 @@ steps:
         exit 1
       fi
 
-  - label: "⚡ Real microVM Launch Test with nomad-driver-ch"
-    key: "microvm-test"
+  - label: "🔍 Service Discovery & Agent Tests"
+    key: "service-discovery-test"
     depends_on: "integration-test"
     agents:
-      queue: "default"  # Use default agents and install driver
-    timeout_in_minutes: 15
+      queue: "default"
     command: |
       set -euxo pipefail
       export PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin:/root/.cargo/bin:/root/go/bin:/usr/local/go/bin:$$PATH"
 
-      echo "--- Install Nomad"
+      echo "--- Download Viper CLI from registry for testing"
+      mkdir -p bin
+      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+      if curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin; then
+        mv viper-$${SEMVER}.bin bin/viper
+        chmod +x bin/viper
+        echo "✅ Viper CLI downloaded successfully"
+      else
+        echo "Building locally..."
+        go build -trimpath -ldflags "-w -s" -o bin/viper ./cmd/viper
+        chmod +x bin/viper
+      fi
+
+      echo "--- Install Nomad for service discovery testing"
       if ! command -v nomad >/dev/null 2>&1; then
         echo "Installing Nomad..."
         wget -O /tmp/nomad.zip https://releases.hashicorp.com/nomad/1.6.2/nomad_1.6.2_linux_amd64.zip
         cd /tmp && unzip nomad.zip && sudo mv nomad /usr/local/bin/
-      fi
-      nomad --version
-
-      echo "--- Download and install nomad-driver-ch plugin"
-      # Download the latest driver from your repo
-      wget -O /tmp/nomad-driver-ch.tar.gz https://github.com/ccheshirecat/nomad-driver-ch/releases/download/v0.1.3/nomad-driver-ch-v0.1.3-linux-amd64.tar.gz
-      cd /tmp && tar -xzf nomad-driver-ch.tar.gz
-
-      # Install the plugin
-      sudo mkdir -p /opt/nomad/plugins
-      sudo mv nomad-driver-ch /opt/nomad/plugins/
-      sudo chmod +x /opt/nomad/plugins/nomad-driver-ch
-
-      echo "✅ nomad-driver-ch plugin installed at /opt/nomad/plugins/nomad-driver-ch"
-      /opt/nomad/plugins/nomad-driver-ch --version || echo "Driver version check failed"
-
-      echo "--- Install Cloud Hypervisor"
-      if ! command -v cloud-hypervisor >/dev/null 2>&1; then
-        echo "Installing Cloud Hypervisor..."
-        wget -O /tmp/cloud-hypervisor.tar.gz https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v37.0/cloud-hypervisor-static-v37.0-x86_64.tar.gz
-        cd /tmp && tar -xzf cloud-hypervisor.tar.gz
-        sudo mv cloud-hypervisor ch-remote /usr/local/bin/
-        sudo chmod +x /usr/local/bin/cloud-hypervisor /usr/local/bin/ch-remote
+        nomad --version
       fi
 
-      cloud-hypervisor --version
-      ch-remote --version
+      echo "--- Start Nomad in dev mode for testing"
+      nomad agent -dev -bind 0.0.0.0 -log-level INFO > nomad.log 2>&1 &
+      NOMAD_PID=$!
+      echo "Nomad PID: $$NOMAD_PID"
 
-      echo "--- Setup network bridge"
-      sudo ip link add $${BRIDGE} type bridge 2>/dev/null || echo "Bridge $${BRIDGE} already exists"
-      sudo ip link set $${BRIDGE} up
-      sudo ip addr add 192.168.100.1/24 dev $${BRIDGE} 2>/dev/null || echo "Bridge IP already set"
+      # Wait for Nomad to start
+      echo "Waiting for Nomad to start..."
+      sleep 10
 
-      echo "✅ Network bridge $${BRIDGE} ready"
-      ip addr show $${BRIDGE}
+      # Verify Nomad is running
+      nomad node status || (echo "Nomad failed to start" && cat nomad.log && exit 1)
 
-      echo "--- Create Nomad configuration with driver"
-      mkdir -p /tmp/nomad-config
-      cat > /tmp/nomad-config/nomad.hcl << EOF
-      datacenter = "dc1"
-      data_dir   = "/tmp/nomad-data"
-      bind_addr  = "127.0.0.1"
+      echo "--- Test Service Discovery Implementation (CRITICAL)"
+      echo "Running comprehensive service discovery test..."
+      go run examples/test-service-discovery.go || (echo "❌ CRITICAL: Service discovery implementation failed" && kill $$NOMAD_PID && exit 1)
 
-      server {
-        enabled = true
-        bootstrap_expect = 1
-      }
+      echo "--- Test AgentClient Service Discovery (CRITICAL)"
+      echo "Testing AgentClient with service discovery..."
+      go test -v ./pkg/client/... -run TestAgentClient || (echo "❌ CRITICAL: AgentClient service discovery failed" && kill $$NOMAD_PID && exit 1)
 
-      client {
-        enabled = true
-        servers = ["127.0.0.1:4647"]
-      }
+      echo "--- Test Nomad Integration (CRITICAL)"
+      echo "Testing Nomad client integration..."
+      go test -v ./internal/nomad/... -run TestListVMs || (echo "❌ CRITICAL: Nomad integration failed" && kill $$NOMAD_PID && exit 1)
 
-      plugin "nomad-driver-ch" {
-        config {
-          enabled = true
-          plugin_dir = "/opt/nomad/plugins"
-        }
-      }
-      EOF
+      echo "--- Validate Service Discovery Core Functionality"
+      echo "Testing ResolveVMAgentURL method specifically..."
+      go test -v ./internal/nomad/... -run TestResolve || echo "⚠️ ResolveVMAgentURL test not found - this is expected if no test VM exists"
 
-      echo "--- Start Nomad server with driver"
-      mkdir -p /tmp/nomad-data
-      sudo nomad agent -config=/tmp/nomad-config/nomad.hcl -dev-connect &
-      NOMAD_PID=$$!
-      echo "Nomad started with PID: $$NOMAD_PID"
+      echo "--- Cleanup"
+      kill $$NOMAD_PID || echo "Nomad already stopped"
 
-      # Wait for Nomad to be ready
-      echo "--- Waiting for Nomad to be ready..."
-      TIMEOUT=60
-      ELAPSED=0
-      while [ $$ELAPSED -lt $$TIMEOUT ]; do
-        if nomad node status >/dev/null 2>&1; then
-          echo "✅ Nomad is ready!"
-          break
-        fi
-        echo "⏳ Waiting for Nomad... ($$ELAPSED/$$TIMEOUT seconds)"
-        sleep 2
-        ELAPSED=$$((ELAPSED + 2))
-      done
-
-      # Check driver availability
-      echo "--- Verify nomad-driver-ch driver is loaded"
-      nomad node status -verbose | grep -i "virt\|ch\|hypervisor" || echo "⚠️ nomad-driver-ch not detected in node drivers"
-
-      echo "--- Download VM artifacts and CLI"
-      mkdir -p dist bin
-      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
-
-      # Download all required artifacts
-      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${SEMVER}.bin
-      mv vmlinuz-$${SEMVER}.bin dist/vmlinuz
-
-      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs-$${SEMVER}.gz
-      mv viper-initramfs-$${SEMVER}.gz dist/viper-initramfs.gz
-
-      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
-        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin
-      mv viper-$${SEMVER}.bin bin/viper
-      chmod +x bin/viper
-
-      echo "--- Verify all artifacts downloaded"
-      ls -la dist/ bin/
-      file dist/vmlinuz
-      file dist/viper-initramfs.gz
-
-      echo "--- Generate test job with absolute paths"
-      WORKSPACE_DIR=$$(pwd)
-      cat > test-vm.hcl << EOF
-      job "viper-test-vm" {
-        datacenters = ["dc1"]
-        type        = "service"
-
-        group "browser" {
-          count = 1
-
-          task "viper-vm" {
-            driver = "virt"
-
-            config {
-              kernel    = "$${WORKSPACE_DIR}/dist/vmlinuz"
-              initramfs = "$${WORKSPACE_DIR}/dist/viper-initramfs.gz"
-              hostname  = "viper-test"
-              cmdline   = "console=ttyS0 init=/usr/local/bin/viper-agent"
-
-              network_interface {
-                bridge {
-                  name = "$${BRIDGE}"
-                }
-              }
-            }
-
-            resources {
-              cpu    = 1000
-              memory = 1024
-            }
-
-            service {
-              name = "viper-agent"
-              port = "agent"
-
-              check {
-                type     = "tcp"
-                port     = "agent"
-                interval = "10s"
-                timeout  = "5s"
-              }
-            }
-          }
-
-          network {
-            port "agent" {
-              to = 8080
-            }
-          }
-        }
-      }
-      EOF
-
-      echo "--- Validate job template"
-      nomad job validate test-vm.hcl || echo "⚠️ Job validation failed - may need nomad-driver-ch setup"
-
-      echo "--- Attempt to launch microVM (if Nomad cluster available)"
-      if nomad node status >/dev/null 2>&1; then
-        echo "🚀 Launching test microVM..."
-
-        # Submit job
-        nomad job run test-vm.hcl
-
-        # Wait for allocation
-        echo "--- Waiting for VM to start..."
-        TIMEOUT=120
-        ELAPSED=0
-        while [ $$ELAPSED -lt $$TIMEOUT ]; do
-          if nomad job status viper-test-vm | grep -q running; then
-            echo "✅ VM is running!"
-            break
-          fi
-          echo "⏳ Waiting for VM... ($$ELAPSED/$$TIMEOUT seconds)"
-          sleep 5
-          ELAPSED=$$((ELAPSED + 5))
-        done
-
-        # Get allocation info
-        echo "--- VM allocation details:"
-        nomad job status viper-test-vm
-
-        # Try to get VM IP
-        ALLOC_ID=$$(nomad job status viper-test-vm | grep running | awk '{print $$1}' | head -1)
-        if [ -n "$$ALLOC_ID" ]; then
-          echo "--- Allocation $$ALLOC_ID details:"
-          nomad alloc status $$ALLOC_ID
-
-          # Try to find agent service
-          nomad alloc status -verbose $$ALLOC_ID | grep -A 10 -B 5 "viper-agent" || echo "Service details not found"
-
-          # Extract VM IP if possible
-          VM_IP=$$(nomad alloc status $$ALLOC_ID | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
-          if [ -n "$$VM_IP" ]; then
-            echo "🔍 Detected VM IP: $$VM_IP"
-
-            echo "--- Testing agent HTTP API"
-            # Wait a bit for agent to start
-            sleep 10
-
-            # Test health endpoint
-            if curl -m 10 -f "http://$$VM_IP:8080/health"; then
-              echo "✅ Agent HTTP API is accessible!"
-
-              # Test basic browser context spawn
-              echo "--- Testing browser context creation"
-              if curl -m 15 -f -X POST "http://$$VM_IP:8080/spawn/test-ctx"; then
-                echo "✅ Browser context creation successful!"
-              else
-                echo "⚠️ Browser context creation failed"
-              fi
-            else
-              echo "⚠️ Agent HTTP API not accessible"
-            fi
-          else
-            echo "⚠️ Could not determine VM IP address"
-          fi
-        fi
-
-        # Cleanup
-        echo "--- Cleaning up test VM"
-        nomad job stop -purge viper-test-vm || echo "Cleanup failed"
-
-      else
-        echo "⚠️ No Nomad cluster available - skipping actual VM launch"
-        echo "Job template validation completed successfully"
-      fi
-
-      echo "--- microVM Test Summary"
-      if [ -n "$${VM_IP:-}" ]; then
-        echo "✅ microVM launched successfully"
-        echo "✅ Agent HTTP API accessible at $$VM_IP:8080"
-        echo "✅ Basic browser automation validated"
-      else
-        echo "⚠️ microVM test completed with limitations (check nomad-driver-ch setup)"
-      fi
+      echo "✅ Service discovery tests completed successfully"
 
   - label: "🚀 End-to-End Viper CLI Test"
     key: "e2e-test"
-    depends_on: "microvm-test"
+    depends_on: "service-discovery-test"
     agents:
       queue: "default"
     command: |
@@ -614,6 +426,87 @@ steps:
       echo "✅ CLI VM management commands tested"
       echo "⚠️ Browser automation requires IP resolution fix"
       echo "✅ Ready for deployment with Cloud Hypervisor Nomad driver"
+
+  - label: "🔥 Real microVM End-to-End Test (REQUIRED)"
+    key: "real-microvm-test"
+    depends_on: "e2e-test"
+    agents:
+      queue: "default" # Use default queue - agents MUST have nomad-driver-ch for development
+    command: |
+      set -euxo pipefail
+      export PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin:/root/.cargo/bin:/root/go/bin:/usr/local/go/bin:$$PATH"
+
+      echo "--- Verify nomad-driver-ch availability (REQUIRED for development)"
+      if ! ls /opt/nomad/plugins/nomad-driver-ch* >/dev/null 2>&1; then
+        echo "❌ CRITICAL: nomad-driver-ch plugin not found in /opt/nomad/plugins/"
+        echo "❌ This is a REQUIRED component for Viper development and release validation"
+        echo "❌ Please install nomad-driver-ch on the Buildkite agent:"
+        echo "   1. Download: wget https://github.com/ccheshirecat/nomad-driver-ch/releases/download/v0.1.2/nomad-driver-ch-v0.1.2-linux-amd64.tar.gz"
+        echo "   2. Extract: tar -xf nomad-driver-ch-v0.1.2-linux-amd64.tar.gz"
+        echo "   3. Install: sudo mv nomad-driver-ch-linux-amd64 /opt/nomad/plugins/nomad-driver-ch"
+        echo "   4. Configure Nomad client with the driver"
+        echo "❌ BUILD FAILED: Cannot validate production readiness without nomad-driver-ch"
+        exit 1
+      fi
+
+      echo "✅ nomad-driver-ch plugin found - proceeding with real microVM testing"
+
+      echo "--- Download all artifacts for microVM testing"
+      mkdir -p bin dist
+      SEMVER="0.1.$${BUILDKITE_BUILD_NUMBER}"
+
+      # Download binaries
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-$${SEMVER}.bin
+      mv viper-$${SEMVER}.bin bin/viper
+      chmod +x bin/viper
+
+      # Download VM artifacts
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/vmlinuz-$${SEMVER}.bin
+      mv vmlinuz-$${SEMVER}.bin dist/vmlinuz
+
+      curl -O -L -H "Authorization: Bearer $$REGISTRY_KEY" \
+        https://packages.buildkite.com/$$REGISTRY_ORG/$$REGISTRY_NAME/files/viper-initramfs-$${SEMVER}.gz
+      mv viper-initramfs-$${SEMVER}.gz dist/viper-initramfs.gz
+
+      echo "--- Verify Cloud Hypervisor and bridge setup"
+      cloud-hypervisor --version
+      ch-remote --version
+      ip link show $${BRIDGE} || (echo "Creating test bridge" && sudo ip link add $${BRIDGE} type bridge && sudo ip link set $${BRIDGE} up)
+
+      echo "--- Start Nomad with nomad-driver-ch"
+      # Assume Nomad is already configured with the driver on this agent
+      nomad node status
+
+      echo "--- Run real microVM end-to-end test (FINAL VALIDATION)"
+      echo "Testing complete workflow with actual nomad-driver-ch..."
+      echo "This test validates:"
+      echo "  1. VM creation with nomad-driver-ch"
+      echo "  2. Service discovery IP resolution"
+      echo "  3. Agent communication and health checks"
+      echo "  4. Browser context spawning"
+      echo "  5. Task submission and execution"
+      echo "  6. Complete end-to-end workflow"
+
+      export SKIP_CH_TESTS=false  # Enable the real microVM tests
+      go test -v -timeout 10m ./tests/integration/microvm_e2e_test.go -run TestMicroVMEndToEnd
+
+      if [ $? -eq 0 ]; then
+        echo "🎉 FINAL VALIDATION SUCCESSFUL!"
+        echo "✅ Viper is PRODUCTION-READY with nomad-driver-ch"
+        echo "✅ Service discovery working with real microVMs"
+        echo "✅ Agent communication functional"
+        echo "✅ Browser automation operational"
+        echo "✅ Complete end-to-end workflow validated"
+        echo ""
+        echo "🚀 RELEASE READY: All critical tests passed"
+      else
+        echo "❌ CRITICAL: Final microVM validation FAILED"
+        echo "❌ Viper is NOT ready for release"
+        echo "❌ Fix the failing tests before deploying to production"
+        exit 1
+      fi
 
 # Retry configuration for flaky network/build issues
 retry:

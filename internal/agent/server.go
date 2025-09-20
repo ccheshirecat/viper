@@ -269,13 +269,14 @@ func (s *Server) handleSubmitTask(c *gin.Context) {
 
 	s.mu.Lock()
 	s.tasks[task.ID] = &task
+	initialStatus := task.Status  // Capture status before goroutine starts
 	s.mu.Unlock()
 
 	go s.executeTask(&task)
 
 	result := types.TaskResult{
 		TaskID: task.ID,
-		Status: task.Status,
+		Status: initialStatus,  // Use captured status to avoid race
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -283,8 +284,12 @@ func (s *Server) handleSubmitTask(c *gin.Context) {
 
 func (s *Server) executeTask(task *types.Task) {
 	now := time.Now()
+
+	// Update task status with proper locking
+	s.mu.Lock()
 	task.Started = &now
 	task.Status = types.TaskStatusRunning
+	s.mu.Unlock()
 
 	defer func() {
 		completed := time.Now()
