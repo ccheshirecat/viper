@@ -99,20 +99,6 @@ func TestTaskStructure(t *testing.T) {
 
 // Helper functions
 
-func getProjectRoot(t *testing.T) string {
-	wd, err := os.Getwd()
-	require.NoError(t, err)
-	for {
-		if _, err := os.Stat(filepath.Join(wd, "go.mod")); err == nil {
-			return wd
-		}
-		parent := filepath.Dir(wd)
-		if parent == wd {
-			t.Fatal("Could not find project root (go.mod not found)")
-		}
-		wd = parent
-	}
-}
 
 func isDockerAvailable() bool {
 	resp, err := http.Get("http://unix.sock/version")

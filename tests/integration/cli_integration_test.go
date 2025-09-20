@@ -374,27 +374,6 @@ func buildCLI(t *testing.T) {
 	t.Logf("CLI built successfully")
 }
 
-func getProjectRoot() string {
-	// Assumes test is run from project root or subdirectory
-	wd, _ := os.Getwd()
-
-	// Walk up directories until we find go.mod
-	dir := wd
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break // Reached filesystem root
-		}
-		dir = parent
-	}
-
-	return wd // Fallback to current directory
-}
-
 func createTestTaskFile(t *testing.T, task types.Task) string {
 	t.Helper()
 
